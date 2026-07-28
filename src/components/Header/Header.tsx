@@ -171,6 +171,7 @@ export function Header({ store, showConsole, onToggleConsole, usbConnected, conn
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {[
+                { v: '0.38.27.0', at: '2026-07-24 JST', changes: ['トレイアイコンのR/Lバッテリー表示(v0.38.26)で文字が右端で切れていた不具合を修正。アイコン全体の幅を44→52pxに拡張しフォントも調整、実際に画像を書き出して視認できることを確認済み'] },
                 { v: '0.38.26.0', at: '2026-07-24 JST', changes: ['新機能: メニューバーの常駐トレイアイコンにR/Lのバッテリー残量を重ねて表示するように変更。元の22x22アイコンの右側に「R82/L75」のように2段で描画(接続中のみ、隠しウィンドウのCanvasで合成)。未接続時は元のプレーンなアイコンに戻る'] },
                 { v: '0.38.25.0', at: '2026-07-24 JST', changes: ['v0.38.24で追加したKey Config「Double Tap」TYPEとTimingタブの間隔設定を撤去（ユーザー判断によりリバート）。ファームウェア側の&double_tapビヘイビアとget/set_double_tap_gap RPCも同時にリバート済み(要ファームウェア更新)'] },
                 { v: '0.38.23.0', at: '2026-07-22 JST', changes: ['マクロの最大ステップ数をfirmware側で32→50に拡張(要ファームウェア更新)。editor側のステップ数チェック上限も追従。診断タブに前回CI確認時点のFlash/RAM使用量(Dongle/R/L)を追加(実機からのリアルタイム取得ではなく静的な参考値)'] },

@@ -308,7 +308,7 @@ function createTray() {
 // extra width -- true overlay (numbers drawn on top of the icon artwork)
 // was tried first but two 2-digit numbers were illegible at native 22x22,
 // so this widens the image instead.
-const TRAY_ICON_W = 44
+const TRAY_ICON_W = 52
 const TRAY_ICON_H = 22
 let iconRenderWin = null
 let lastTrayBattery = null // dedupe: skip redraw if r/l unchanged since last update
@@ -375,12 +375,12 @@ async function updateTrayBatteryIcon(battery) {
           // Icon glyph, native 22x22 size, left-aligned, vertically centered.
           ctx.drawImage(img, 0, (${TRAY_ICON_H} - img.height) / 2, img.width, img.height);
           // R/L battery numbers stacked to the right of the icon.
-          ctx.font = 'bold 9px -apple-system, sans-serif';
+          ctx.font = 'bold 8px -apple-system, sans-serif';
           ctx.textBaseline = 'middle';
           ctx.fillStyle = '#ffffff';
           ctx.strokeStyle = 'rgba(0,0,0,0.7)';
-          ctx.lineWidth = 2.5;
-          const textX = img.width + 3;
+          ctx.lineWidth = 2;
+          const textX = img.width + 2;
           ctx.strokeText(${JSON.stringify('R' + fmt(r))}, textX, ${TRAY_ICON_H} * 0.28);
           ctx.fillText(${JSON.stringify('R' + fmt(r))}, textX, ${TRAY_ICON_H} * 0.28);
           ctx.strokeText(${JSON.stringify('L' + fmt(l))}, textX, ${TRAY_ICON_H} * 0.72);
@@ -393,6 +393,10 @@ async function updateTrayBatteryIcon(battery) {
   `)
 
   const image = await win.webContents.capturePage({ x: 0, y: 0, width: TRAY_ICON_W, height: TRAY_ICON_H })
+  if (process.env.CONDUCTOR_TRAY_DEBUG_DUMP) {
+    fs.writeFileSync(process.env.CONDUCTOR_TRAY_DEBUG_DUMP, image.toPNG())
+    console.log('[DEBUG] dumped tray icon to', process.env.CONDUCTOR_TRAY_DEBUG_DUMP, 'size:', image.getSize())
+  }
   tray.setImage(image)
 }
 
