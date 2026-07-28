@@ -296,9 +296,110 @@ function createTray() {
   tray.on('right-click', () => tray.popUpContextMenu(buildTrayMenu()))
 }
 
+// Composites "R.. L.." battery numbers onto the tray icon by drawing into an
+// offscreen (never-shown) BrowserWindow's <canvas> -- the main process has no
+// Canvas/image-compositing API of its own, so this borrows Chromium's via a
+// hidden renderer, then captures the result as the actual tray image.
+// The window is sized in points (44x22, double the original 22x22 icon's
+// width) and capturePage() captures at the display's actual backing scale
+// factor automatically, so this comes out crisp on retina without manually
+// juggling @2x representations. The icon glyph keeps its original 22x22
+// square on the left; the two battery numbers stack to its right in the
+// extra width -- true overlay (numbers drawn on top of the icon artwork)
+// was tried first but two 2-digit numbers were illegible at native 22x22,
+// so this widens the image instead.
+const TRAY_ICON_W = 44
+const TRAY_ICON_H = 22
+let iconRenderWin = null
+let lastTrayBattery = null // dedupe: skip redraw if r/l unchanged since last update
+
+function getIconRenderWindow() {
+  if (iconRenderWin && !iconRenderWin.isDestroyed()) return iconRenderWin
+  iconRenderWin = new BrowserWindow({
+    width: TRAY_ICON_W,
+    height: TRAY_ICON_H,
+    show: false,
+    frame: false,
+    transparent: true,
+    webPreferences: { sandbox: true },
+  })
+  iconRenderWin.loadURL(
+    `data:text/html,<style>html,body{margin:0;padding:0;background:transparent}</style>` +
+    `<canvas id="c" width="${TRAY_ICON_W}" height="${TRAY_ICON_H}" ` +
+    `style="width:${TRAY_ICON_W}px;height:${TRAY_ICON_H}px"></canvas>`
+  )
+  return iconRenderWin
+}
+
+async function updateTrayBatteryIcon(battery) {
+  if (!tray) return
+
+  // Not connected (or battery not reported yet): fall back to the plain
+  // original icon instead of a permanent "R-- L--".
+  if (!battery) {
+    if (lastTrayBattery !== null) {
+      lastTrayBattery = null
+      tray.setImage(nativeImage.createFromPath(path.join(__dirname, 'trayIcon.png')))
+    }
+    return
+  }
+
+  const r = battery.r ?? null
+  const l = battery.l ?? null
+  if (lastTrayBattery && lastTrayBattery.r === r && lastTrayBattery.l === l) return
+  lastTrayBattery = { r, l }
+
+  const win = getIconRenderWindow()
+  if (win.webContents.isLoading()) {
+    await new Promise((resolve) => win.webContents.once('did-finish-load', resolve))
+  }
+
+  const iconPath = path.join(__dirname, 'trayIcon.png')
+  const iconDataUrl = `data:image/png;base64,${fs.readFileSync(iconPath).toString('base64')}`
+  const fmt = (v) => (v === null || v === undefined ? '--' : String(Math.round(v)))
+
+  await win.webContents.executeJavaScript(`
+    (function() {
+      const canvas = document.getElementById('c');
+      const dpr = window.devicePixelRatio || 1;
+      // Back the canvas with real device pixels for sharp text, while all
+      // drawing below still uses point coordinates via ctx.scale.
+      canvas.width = ${TRAY_ICON_W} * dpr;
+      canvas.height = ${TRAY_ICON_H} * dpr;
+      const ctx = canvas.getContext('2d');
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, ${TRAY_ICON_W}, ${TRAY_ICON_H});
+      return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          // Icon glyph, native 22x22 size, left-aligned, vertically centered.
+          ctx.drawImage(img, 0, (${TRAY_ICON_H} - img.height) / 2, img.width, img.height);
+          // R/L battery numbers stacked to the right of the icon.
+          ctx.font = 'bold 9px -apple-system, sans-serif';
+          ctx.textBaseline = 'middle';
+          ctx.fillStyle = '#ffffff';
+          ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+          ctx.lineWidth = 2.5;
+          const textX = img.width + 3;
+          ctx.strokeText(${JSON.stringify('R' + fmt(r))}, textX, ${TRAY_ICON_H} * 0.28);
+          ctx.fillText(${JSON.stringify('R' + fmt(r))}, textX, ${TRAY_ICON_H} * 0.28);
+          ctx.strokeText(${JSON.stringify('L' + fmt(l))}, textX, ${TRAY_ICON_H} * 0.72);
+          ctx.fillText(${JSON.stringify('L' + fmt(l))}, textX, ${TRAY_ICON_H} * 0.72);
+          resolve();
+        };
+        img.src = ${JSON.stringify(iconDataUrl)};
+      });
+    })()
+  `)
+
+  const image = await win.webContents.capturePage({ x: 0, y: 0, width: TRAY_ICON_W, height: TRAY_ICON_H })
+  tray.setImage(image)
+}
+
 ipcMain.on('layer-state', (_event, state) => {
   latestLayerState = state
   if (popupWin) popupWin.webContents.send('layer-state', state)
+  updateTrayBatteryIcon(state?.battery).catch((e) => console.error('Tray battery icon update failed:', e))
 })
 
 ipcMain.on('popup-context-menu', showPopupContextMenu)

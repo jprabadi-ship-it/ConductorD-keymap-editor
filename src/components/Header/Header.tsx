@@ -171,6 +171,7 @@ export function Header({ store, showConsole, onToggleConsole, usbConnected, conn
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {[
+                { v: '0.38.26.0', at: '2026-07-24 JST', changes: ['新機能: メニューバーの常駐トレイアイコンにR/Lのバッテリー残量を重ねて表示するように変更。元の22x22アイコンの右側に「R82/L75」のように2段で描画(接続中のみ、隠しウィンドウのCanvasで合成)。未接続時は元のプレーンなアイコンに戻る'] },
                 { v: '0.38.25.0', at: '2026-07-24 JST', changes: ['v0.38.24で追加したKey Config「Double Tap」TYPEとTimingタブの間隔設定を撤去（ユーザー判断によりリバート）。ファームウェア側の&double_tapビヘイビアとget/set_double_tap_gap RPCも同時にリバート済み(要ファームウェア更新)'] },
                 { v: '0.38.23.0', at: '2026-07-22 JST', changes: ['マクロの最大ステップ数をfirmware側で32→50に拡張(要ファームウェア更新)。editor側のステップ数チェック上限も追従。診断タブに前回CI確認時点のFlash/RAM使用量(Dongle/R/L)を追加(実機からのリアルタイム取得ではなく静的な参考値)'] },
                 { v: '0.38.22.0', at: '2026-07-22 JST', changes: ['マクロのsetMacroが応答すら返さずタイムアウトし続ける問題の真因を発見・修正。UIの「Tap」1ステップは実機送信時にPress+Releaseの2ステップへ展開されるため、UI上のステップ数(28)と実際の配線ステップ数(46)が乖離し、firmwareの上限32を超過していた。上限超過時はfirmwareが応答自体を返せずResponse timeoutになるだけだったため、これまでのスロット固有バグという推測は誤りだった(スロット0の修正自体はファームウェア側の改善として有効なため維持)。Steps見出しに実際の配線ステップ数を表示し、超過時はWrite to Device前に明確なエラーで止めるように変更'] },
