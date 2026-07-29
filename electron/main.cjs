@@ -331,23 +331,30 @@ function getIconRenderWindow() {
   return iconRenderWin
 }
 
+// Minimum time between actual icon redraws, regardless of how often battery
+// updates arrive (App.tsx polls every 1s). Suspected cause of a real-world
+// report of the tray icon vanishing from the menu bar after "a while" with
+// no crash (the app process kept running) -- macOS's menu bar layout can
+// become unstable under frequent icon churn, especially width changes.
+// Throttling redraws, and keeping the icon's width constant (below) instead
+// of alternating between the wide battery view and the narrow plain icon,
+// are both defensive measures against that.
+const TRAY_REDRAW_MIN_INTERVAL_MS = 15000
+let lastTrayRedrawAt = 0
+
 async function updateTrayBatteryIcon(battery) {
   if (!tray) return
 
-  // Not connected (or battery not reported yet): fall back to the plain
-  // original icon instead of a permanent "R-- L--".
-  if (!battery) {
-    if (lastTrayBattery !== null) {
-      lastTrayBattery = null
-      tray.setImage(nativeImage.createFromPath(path.join(__dirname, 'trayIcon.png')))
-    }
+  const r = battery?.r ?? null
+  const l = battery?.l ?? null
+  const disconnected = !battery
+  if (lastTrayBattery && lastTrayBattery.r === r && lastTrayBattery.l === l && lastTrayBattery.disconnected === disconnected) {
     return
   }
-
-  const r = battery.r ?? null
-  const l = battery.l ?? null
-  if (lastTrayBattery && lastTrayBattery.r === r && lastTrayBattery.l === l) return
-  lastTrayBattery = { r, l }
+  const now = Date.now()
+  if (now - lastTrayRedrawAt < TRAY_REDRAW_MIN_INTERVAL_MS) return
+  lastTrayRedrawAt = now
+  lastTrayBattery = { r, l, disconnected }
 
   const win = getIconRenderWindow()
   if (win.webContents.isLoading()) {
