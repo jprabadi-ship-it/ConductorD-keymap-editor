@@ -296,52 +296,22 @@ function createTray() {
   tray.on('right-click', () => tray.popUpContextMenu(buildTrayMenu()))
 }
 
-// Composites "R.. L.." battery numbers onto the tray icon by drawing into an
-// offscreen (never-shown) BrowserWindow's <canvas> -- the main process has no
-// Canvas/image-compositing API of its own, so this borrows Chromium's via a
-// hidden renderer, then captures the result as the actual tray image.
-// The window is sized in points and capturePage() captures at the display's
-// actual backing scale factor automatically, so this comes out crisp on
-// retina without manually juggling @2x representations. Layout is
-// "L.. [icon] R.." -- the original 22x22 icon glyph stays centered, with
-// one battery number on each side -- true overlay (numbers drawn on top of
-// the icon artwork) was tried first but was illegible at native 22x22, so
-// this widens the image instead.
-const TRAY_ICON_W = 70
-const TRAY_ICON_H = 22
-let iconRenderWin = null
-let lastTrayBattery = null // dedupe: skip redraw if r/l unchanged since last update
-
-function getIconRenderWindow() {
-  if (iconRenderWin && !iconRenderWin.isDestroyed()) return iconRenderWin
-  iconRenderWin = new BrowserWindow({
-    width: TRAY_ICON_W,
-    height: TRAY_ICON_H,
-    show: false,
-    frame: false,
-    transparent: true,
-    webPreferences: { sandbox: true },
-  })
-  iconRenderWin.loadURL(
-    `data:text/html,<style>html,body{margin:0;padding:0;background:transparent}</style>` +
-    `<canvas id="c" width="${TRAY_ICON_W}" height="${TRAY_ICON_H}" ` +
-    `style="width:${TRAY_ICON_W}px;height:${TRAY_ICON_H}px"></canvas>`
-  )
-  return iconRenderWin
-}
-
-// Minimum time between actual icon redraws, regardless of how often battery
-// updates arrive (App.tsx polls every 1s). Suspected cause of a real-world
-// report of the tray icon vanishing from the menu bar after "a while" with
-// no crash (the app process kept running) -- macOS's menu bar layout can
-// become unstable under frequent icon churn, especially width changes.
-// Throttling redraws, and keeping the icon's width constant (below) instead
-// of alternating between the wide battery view and the narrow plain icon,
-// are both defensive measures against that.
+// Shows "L.. R.." battery levels next to the tray icon via Tray.setTitle(),
+// which macOS renders with the real system menu-bar font (proper subpixel
+// antialiasing, guaranteed legible) -- an earlier approach that composited
+// the numbers onto the icon image via an offscreen BrowserWindow's canvas
+// kept coming out blocky/aliased no matter the font or supersampling tried,
+// most likely because transparent, never-shown BrowserWindows on macOS don't
+// get normal font smoothing. setTitle can only place text to the icon's
+// right (not wrapped left+right), but it's simple, robust, and reads
+// correctly. The icon image itself never changes now, which also removes
+// the width-alternation churn suspected of contributing to an earlier
+// report of the tray icon vanishing from the menu bar after a while.
 const TRAY_REDRAW_MIN_INTERVAL_MS = 15000
 let lastTrayRedrawAt = 0
+let lastTrayBattery = null // dedupe: skip redraw if r/l unchanged since last update
 
-async function updateTrayBatteryIcon(battery) {
+function updateTrayBatteryIcon(battery) {
   if (!tray) return
 
   const r = battery?.r ?? null
@@ -355,65 +325,14 @@ async function updateTrayBatteryIcon(battery) {
   lastTrayRedrawAt = now
   lastTrayBattery = { r, l, disconnected }
 
-  const win = getIconRenderWindow()
-  if (win.webContents.isLoading()) {
-    await new Promise((resolve) => win.webContents.once('did-finish-load', resolve))
-  }
-
-  const iconPath = path.join(__dirname, 'trayIcon.png')
-  const iconDataUrl = `data:image/png;base64,${fs.readFileSync(iconPath).toString('base64')}`
   const fmt = (v) => (v === null || v === undefined ? '--' : String(Math.round(v)))
-
-  await win.webContents.executeJavaScript(`
-    (function() {
-      const canvas = document.getElementById('c');
-      const dpr = window.devicePixelRatio || 1;
-      // Back the canvas with real device pixels for sharp text, while all
-      // drawing below still uses point coordinates via ctx.scale.
-      canvas.width = ${TRAY_ICON_W} * dpr;
-      canvas.height = ${TRAY_ICON_H} * dpr;
-      const ctx = canvas.getContext('2d');
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.clearRect(0, 0, ${TRAY_ICON_W}, ${TRAY_ICON_H});
-      return new Promise((resolve) => {
-        const img = new Image();
-        img.onload = () => {
-          // Icon glyph, native 22x22 size, centered horizontally and vertically.
-          const iconX = (${TRAY_ICON_W} - img.width) / 2;
-          ctx.drawImage(img, iconX, (${TRAY_ICON_H} - img.height) / 2, img.width, img.height);
-          // L on the left of the icon, R on the right -- normal (non-bold)
-          // system font, one line each, vertically centered.
-          ctx.font = '9px -apple-system, sans-serif';
-          ctx.textBaseline = 'middle';
-          ctx.fillStyle = '#ffffff';
-          ctx.strokeStyle = 'rgba(0,0,0,0.7)';
-          ctx.lineWidth = 2;
-          const midY = ${TRAY_ICON_H} / 2;
-          ctx.textAlign = 'left';
-          ctx.strokeText(${JSON.stringify('L' + fmt(l))}, 1, midY);
-          ctx.fillText(${JSON.stringify('L' + fmt(l))}, 1, midY);
-          ctx.textAlign = 'right';
-          ctx.strokeText(${JSON.stringify('R' + fmt(r))}, ${TRAY_ICON_W} - 1, midY);
-          ctx.fillText(${JSON.stringify('R' + fmt(r))}, ${TRAY_ICON_W} - 1, midY);
-          resolve();
-        };
-        img.src = ${JSON.stringify(iconDataUrl)};
-      });
-    })()
-  `)
-
-  const image = await win.webContents.capturePage({ x: 0, y: 0, width: TRAY_ICON_W, height: TRAY_ICON_H })
-  if (process.env.CONDUCTOR_TRAY_DEBUG_DUMP) {
-    fs.writeFileSync(process.env.CONDUCTOR_TRAY_DEBUG_DUMP, image.toPNG())
-    console.log('[DEBUG] dumped tray icon to', process.env.CONDUCTOR_TRAY_DEBUG_DUMP, 'size:', image.getSize())
-  }
-  tray.setImage(image)
+  tray.setTitle(disconnected ? '' : ` L${fmt(l)} R${fmt(r)}`)
 }
 
 ipcMain.on('layer-state', (_event, state) => {
   latestLayerState = state
   if (popupWin) popupWin.webContents.send('layer-state', state)
-  updateTrayBatteryIcon(state?.battery).catch((e) => console.error('Tray battery icon update failed:', e))
+  updateTrayBatteryIcon(state?.battery)
 })
 
 ipcMain.on('popup-context-menu', showPopupContextMenu)
