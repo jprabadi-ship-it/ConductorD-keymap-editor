@@ -300,15 +300,14 @@ function createTray() {
 // offscreen (never-shown) BrowserWindow's <canvas> -- the main process has no
 // Canvas/image-compositing API of its own, so this borrows Chromium's via a
 // hidden renderer, then captures the result as the actual tray image.
-// The window is sized in points (44x22, double the original 22x22 icon's
-// width) and capturePage() captures at the display's actual backing scale
-// factor automatically, so this comes out crisp on retina without manually
-// juggling @2x representations. The icon glyph keeps its original 22x22
-// square on the left; the two battery numbers stack to its right in the
-// extra width -- true overlay (numbers drawn on top of the icon artwork)
-// was tried first but two 2-digit numbers were illegible at native 22x22,
-// so this widens the image instead.
-const TRAY_ICON_W = 52
+// The window is sized in points and capturePage() captures at the display's
+// actual backing scale factor automatically, so this comes out crisp on
+// retina without manually juggling @2x representations. Layout is
+// "L.. [icon] R.." -- the original 22x22 icon glyph stays centered, with
+// one battery number on each side -- true overlay (numbers drawn on top of
+// the icon artwork) was tried first but was illegible at native 22x22, so
+// this widens the image instead.
+const TRAY_ICON_W = 70
 const TRAY_ICON_H = 22
 let iconRenderWin = null
 let lastTrayBattery = null // dedupe: skip redraw if r/l unchanged since last update
@@ -379,19 +378,23 @@ async function updateTrayBatteryIcon(battery) {
       return new Promise((resolve) => {
         const img = new Image();
         img.onload = () => {
-          // Icon glyph, native 22x22 size, left-aligned, vertically centered.
-          ctx.drawImage(img, 0, (${TRAY_ICON_H} - img.height) / 2, img.width, img.height);
-          // R/L battery numbers stacked to the right of the icon.
-          ctx.font = 'bold 8px -apple-system, sans-serif';
+          // Icon glyph, native 22x22 size, centered horizontally and vertically.
+          const iconX = (${TRAY_ICON_W} - img.width) / 2;
+          ctx.drawImage(img, iconX, (${TRAY_ICON_H} - img.height) / 2, img.width, img.height);
+          // L on the left of the icon, R on the right -- normal (non-bold)
+          // system font, one line each, vertically centered.
+          ctx.font = '9px -apple-system, sans-serif';
           ctx.textBaseline = 'middle';
           ctx.fillStyle = '#ffffff';
           ctx.strokeStyle = 'rgba(0,0,0,0.7)';
           ctx.lineWidth = 2;
-          const textX = img.width + 2;
-          ctx.strokeText(${JSON.stringify('R' + fmt(r))}, textX, ${TRAY_ICON_H} * 0.28);
-          ctx.fillText(${JSON.stringify('R' + fmt(r))}, textX, ${TRAY_ICON_H} * 0.28);
-          ctx.strokeText(${JSON.stringify('L' + fmt(l))}, textX, ${TRAY_ICON_H} * 0.72);
-          ctx.fillText(${JSON.stringify('L' + fmt(l))}, textX, ${TRAY_ICON_H} * 0.72);
+          const midY = ${TRAY_ICON_H} / 2;
+          ctx.textAlign = 'left';
+          ctx.strokeText(${JSON.stringify('L' + fmt(l))}, 1, midY);
+          ctx.fillText(${JSON.stringify('L' + fmt(l))}, 1, midY);
+          ctx.textAlign = 'right';
+          ctx.strokeText(${JSON.stringify('R' + fmt(r))}, ${TRAY_ICON_W} - 1, midY);
+          ctx.fillText(${JSON.stringify('R' + fmt(r))}, ${TRAY_ICON_W} - 1, midY);
           resolve();
         };
         img.src = ${JSON.stringify(iconDataUrl)};

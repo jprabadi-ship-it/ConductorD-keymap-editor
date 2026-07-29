@@ -101,6 +101,10 @@ export function LayerPopup() {
   const [scale, setScale] = useState(1);
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  // Tracks whether THIS popup was the one locally connected, so the tray
+  // "disconnected" notification only fires on a real connect->disconnect
+  // transition (see the tray-relay effect below).
+  const wasLocallyConnected = useRef(false);
 
   useEffect(() => {
     const api = (window as any).electronAPI;
@@ -163,6 +167,39 @@ export function LayerPopup() {
     }, 30000);
     return () => clearInterval(interval);
   }, [localConn.connected]);
+
+  // Relay this popup's own connection state to the Electron main process too
+  // (see electron/main.cjs's 'layer-state' handler / updateTrayBatteryIcon)
+  // -- previously only App.tsx (the main Studio window) did this, so
+  // connecting from the minimap directly (without ever opening Studio) left
+  // the tray's battery display permanently blank. Only sent while this
+  // popup holds its own local connection, not while displaying a
+  // Studio-relayed remote one (that data already made this same round trip
+  // from the other window).
+  useEffect(() => {
+    if (!localConn.connected) {
+      // Only notify the tray on an actual local-connection->disconnect
+      // transition, not on initial mount (localConn starts unconnected even
+      // while the Studio window has its own active connection -- sending
+      // "disconnected" unconditionally here would incorrectly blank the
+      // tray's battery display whenever the popup itself isn't the one
+      // connected, e.g. while just showing Studio-relayed remote state).
+      if (wasLocallyConnected.current) {
+        wasLocallyConnected.current = false;
+        (window as any).electronAPI?.sendLayerState?.({
+          layers: [], combos: [], amlExcluded: [], highestLayer: 0,
+          connected: false, pressedPositions: [], battery: null,
+        });
+      }
+      return;
+    }
+    wasLocallyConnected.current = true;
+    (window as any).electronAPI?.sendLayerState?.({
+      layers: localConn.layers, combos: localConn.combos, amlExcluded: localConn.amlExcluded,
+      highestLayer: localConn.highestLayer, connected: true, pressedPositions: localConn.pressedPositions,
+      battery: localConn.battery,
+    });
+  }, [localConn.connected, localConn.layers, localConn.combos, localConn.amlExcluded, localConn.highestLayer, localConn.pressedPositions, localConn.battery]);
 
   // Port handoff with the Studio window: when Studio wants to connect we
   // release our connection (remembering the transport), and when Studio
