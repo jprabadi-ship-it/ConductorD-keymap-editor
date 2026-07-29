@@ -252,6 +252,38 @@ function hidePopup() {
   popupWin?.hide()
 }
 
+// Lets the internal MacBook keyboard be disabled while Conductor (or an
+// iPad) sits physically on top of it, to avoid stray keypresses. Uses
+// hidutil's DeviceDisabled property, matched by "Built-In" + the keyboard
+// usage page/usage so it targets the internal keyboard specifically
+// regardless of Mac model (no hardcoded vendor/product ID). This is a
+// session-scoped OS setting, not persisted by us or by macOS -- it always
+// resets to enabled on logout/reboot, and isn't tied to this app's process
+// (quitting ConductorD Studio does NOT re-enable it by itself). We can't
+// cheaply read the current OS-level state back from hidutil, so
+// builtInKeyboardDisabled below is just this app's own best-effort tracking
+// of what IT last set; if the keyboard was left disabled from a previous
+// run, the checkbox may not reflect that until toggled once.
+const execFileAsync = (cmd, args, opts) =>
+  new Promise((resolve, reject) => {
+    execFile(cmd, args, opts, (err, stdout, stderr) => {
+      if (err) reject(new Error(stderr?.trim() || err.message))
+      else resolve(stdout)
+    })
+  })
+
+let builtInKeyboardDisabled = false
+const BUILT_IN_KEYBOARD_MATCH = '{"Built-In":1,"UsagePage":1,"Usage":6}'
+
+async function setBuiltInKeyboardDisabled(disabled) {
+  await execFileAsync(
+    'hidutil',
+    ['property', '--matching', BUILT_IN_KEYBOARD_MATCH, '--set', `{"DeviceDisabled":${disabled ? 1 : 0}}`],
+    { timeout: 5000 },
+  )
+  builtInKeyboardDisabled = disabled
+}
+
 function buildTrayMenu() {
   return Menu.buildFromTemplate([
     {
@@ -273,6 +305,24 @@ function buildTrayMenu() {
       click: (menuItem) => {
         if (menuItem.checked) showPopup()
         else hidePopup()
+      },
+    },
+    { type: 'separator' },
+    {
+      label: '内蔵キーボードを無効にする',
+      type: 'checkbox',
+      checked: builtInKeyboardDisabled,
+      click: async (menuItem) => {
+        try {
+          await setBuiltInKeyboardDisabled(menuItem.checked)
+        } catch (e) {
+          console.error('Failed to toggle built-in keyboard:', e)
+          menuItem.checked = !menuItem.checked // revert the checkbox on failure
+          dialog.showErrorBox(
+            '内蔵キーボードの切り替えに失敗しました',
+            `${e.message}\n\n再起動すれば内蔵キーボードは必ず有効な状態に戻ります。`,
+          )
+        }
       },
     },
     { type: 'separator' },
