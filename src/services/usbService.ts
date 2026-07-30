@@ -1354,6 +1354,27 @@ export async function setPrecisionScale(numerator: number, denominator: number):
   }
 }
 
+export async function getSpeedScale(): Promise<{ numerator: number; denominator: number } | null> {
+  try {
+    const resp = await sendRequest({ pointing: { getSpeedScale: {} } });
+    return resp.pointing?.getSpeedScale?.speed || null;
+  } catch (e: any) {
+    debugLog('ERR', 'USB', `getSpeedScale failed: ${e.message}`);
+    return null;
+  }
+}
+
+export async function setSpeedScale(numerator: number, denominator: number): Promise<boolean> {
+  try {
+    await sendRequest({ pointing: { setSpeedScale: { speed: { numerator, denominator } } } });
+    debugLog('INF', 'USB', `Speed set: ${numerator}/${denominator}`);
+    return true;
+  } catch (e: any) {
+    debugLog('ERR', 'USB', `setSpeedScale failed: ${e.message}`);
+    return false;
+  }
+}
+
 export async function getAccel(): Promise<{ enabled: boolean; maxMilli: number; threshold: number; range: number } | null> {
   try {
     const resp = await sendRequest({ pointing: { getAccel: {} } });
@@ -1553,6 +1574,7 @@ export async function collectDeviceSettingsSnapshot(options?: { includeAllSlotPr
     sensitivity,
     autoLayer,
     precisionScale,
+    speedScale,
     accel,
     inertia,
     dragScale,
@@ -1566,6 +1588,7 @@ export async function collectDeviceSettingsSnapshot(options?: { includeAllSlotPr
     getSensitivity(),
     getAutoLayer(),
     getPrecisionScale(),
+    getSpeedScale(),
     getAccel(),
     getInertia(),
     getDragScale(),
@@ -1577,11 +1600,12 @@ export async function collectDeviceSettingsSnapshot(options?: { includeAllSlotPr
   if (tappingTerm !== null) snapshot.tappingTerm = tappingTerm;
   if (bluetoothProfiles) snapshot.bluetoothProfiles = bluetoothProfiles;
   if (usbSlots) snapshot.usbSlots = usbSlots;
-  if (sensitivity || autoLayer || precisionScale || accel || inertia || dragScale) {
+  if (sensitivity || autoLayer || precisionScale || speedScale || accel || inertia || dragScale) {
     snapshot.trackball = {};
     if (sensitivity && !(usbSlots || bluetoothProfiles)) snapshot.trackball.sensitivity = stripCursor(sensitivity);
     if (autoLayer) snapshot.trackball.autoLayer = autoLayer;
     if (precisionScale && !(usbSlots || bluetoothProfiles)) snapshot.trackball.precisionScale = precisionScale;
+    if (speedScale && !(usbSlots || bluetoothProfiles)) snapshot.trackball.speedScale = speedScale;
     if (accel && !(usbSlots || bluetoothProfiles)) snapshot.trackball.accel = accel;
     if (inertia && !(usbSlots || bluetoothProfiles)) snapshot.trackball.inertia = inertia;
     if (dragScale && !(usbSlots || bluetoothProfiles)) snapshot.trackball.dragScale = dragScale;
@@ -1608,9 +1632,10 @@ export async function collectDeviceSettingsSnapshot(options?: { includeAllSlotPr
         profiles[slotIndex] = {};
         continue;
       }
-      const [slotSensitivity, slotPrecisionScale, slotAccel, slotInertia, slotDragScale] = await Promise.all([
+      const [slotSensitivity, slotPrecisionScale, slotSpeedScale, slotAccel, slotInertia, slotDragScale] = await Promise.all([
         getSensitivity(),
         getPrecisionScale(),
+        getSpeedScale(),
         getAccel(),
         getInertia(),
         getDragScale(),
@@ -1618,6 +1643,7 @@ export async function collectDeviceSettingsSnapshot(options?: { includeAllSlotPr
       profiles[slotIndex] = {};
       if (slotSensitivity) profiles[slotIndex].sensitivity = stripCursor(slotSensitivity);
       if (slotPrecisionScale) profiles[slotIndex].precisionScale = slotPrecisionScale;
+      if (slotSpeedScale) profiles[slotIndex].speedScale = slotSpeedScale;
       if (slotAccel) profiles[slotIndex].accel = slotAccel;
       if (slotInertia) profiles[slotIndex].inertia = slotInertia;
       if (slotDragScale) profiles[slotIndex].dragScale = slotDragScale;
@@ -1700,6 +1726,10 @@ export async function applyDeviceSettingsSnapshot(snapshot: DeviceSettingsSnapsh
     const p = trackball.precisionScale;
     await remember('precision scale', setPrecisionScale(p.numerator, p.denominator));
   }
+  if (!hasTrackballProfiles && trackball?.speedScale) {
+    const s = trackball.speedScale;
+    await remember('speed scale', setSpeedScale(s.numerator, s.denominator));
+  }
   if (!hasTrackballProfiles && trackball?.accel) {
     const a = trackball.accel;
     await remember('accel', setAccel(a.enabled, a.maxMilli, a.threshold, a.range));
@@ -1732,6 +1762,10 @@ export async function applyDeviceSettingsSnapshot(snapshot: DeviceSettingsSnapsh
       if (profile?.precisionScale) {
         const p = profile.precisionScale;
         await remember(`precision scale ${slotIndex}`, setPrecisionScale(p.numerator, p.denominator));
+      }
+      if (profile?.speedScale) {
+        const s = profile.speedScale;
+        await remember(`speed scale ${slotIndex}`, setSpeedScale(s.numerator, s.denominator));
       }
       if (profile?.accel) {
         const a = profile.accel;
@@ -1780,7 +1814,7 @@ export async function applyDeviceSettingsSnapshot(snapshot: DeviceSettingsSnapsh
   if (
     snapshot.tappingTerm !== undefined ||
     trackball?.autoLayer ||
-    (!hasTrackballProfiles && (trackball?.sensitivity || trackball?.precisionScale || trackball?.accel || trackball?.inertia || trackball?.dragScale))
+    (!hasTrackballProfiles && (trackball?.sensitivity || trackball?.precisionScale || trackball?.speedScale || trackball?.accel || trackball?.inertia || trackball?.dragScale))
   ) {
     await remember('save changes', saveChanges());
   }

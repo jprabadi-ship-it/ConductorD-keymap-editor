@@ -155,6 +155,10 @@ export interface DeviceSettingsSnapshot {
       numerator: number;
       denominator: number;
     };
+    speedScale?: {
+      numerator: number;
+      denominator: number;
+    };
     accel?: {
       enabled: boolean;
       maxMilli: number;
@@ -177,6 +181,10 @@ export interface DeviceSettingsSnapshot {
     profiles: Array<{
       sensitivity?: SensitivitySnapshot;
       precisionScale?: {
+        numerator: number;
+        denominator: number;
+      };
+      speedScale?: {
         numerator: number;
         denominator: number;
       };

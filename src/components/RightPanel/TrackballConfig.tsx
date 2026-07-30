@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { KeymapStore } from '../../store/useKeymapStore';
-import { isConnected, isUnlocked, requestUnlock, setSensitivity, setAutoLayer, setPrecisionScale, setAccel, getSensitivity, getAutoLayer, getPrecisionScale, getAccel, getInertia, setInertia, getDragScale, setDragScale, saveChanges as savePointingChanges, getBleProfiles, getUsbSlots, setActiveBleProfile, setActiveUsbSlot, getOsConfig, getGestureConfig } from '../../services/usbService';
+import { isConnected, isUnlocked, requestUnlock, setSensitivity, setAutoLayer, setPrecisionScale, setSpeedScale, setAccel, getSensitivity, getAutoLayer, getPrecisionScale, getSpeedScale, getAccel, getInertia, setInertia, getDragScale, setDragScale, saveChanges as savePointingChanges, getBleProfiles, getUsbSlots, setActiveBleProfile, setActiveUsbSlot, getOsConfig, getGestureConfig } from '../../services/usbService';
 import { KEY_CATEGORIES, KEYCODES, searchKeyCodes } from '../../data/keycodes';
 import { debugLog } from '../DebugConsole';
 import { KEYBOARD_LAYOUT, keyIdsToPositions, positionsToKeyIds } from '../../data/layout';
@@ -16,12 +16,14 @@ type SlotSummary = {
   detail: string;
   cpi?: number;
   precision?: string;
+  speed?: string;
   accel?: string;
   inertia?: string;
   drag?: string;
 };
 
 const CPI_PRESETS = [200, 400, 600, 800, 1200, 1600, 2400, 3200];
+const SPEED_PRESETS = [0.25, 0.5, 0.75, 1.0, 1.5, 2.0];
 const SCROLL_PRESETS = [0.25, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0];
 const PRECISION_PRESETS = [
   { label: '1/8', value: 0.125 }, { label: '1/4', value: 0.25 },
@@ -107,6 +109,7 @@ export function TrackballConfig({ store }: Props) {
   const [scrollSensitivity, setScrollSensitivity] = useState(1.0);
   const [scrollDirection, setScrollDirection] = useState<'normal' | 'inverted'>('normal');
   const [precisionSensitivity, setPrecisionSensitivity] = useState(0.25);
+  const [speedSensitivity, setSpeedSensitivity] = useState(1.0);
   const [accelMode, setAccelMode] = useState(1);
   const [realtimePreview, setRealtimePreview] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -181,10 +184,11 @@ export function TrackballConfig({ store }: Props) {
       }
     }
 
-    const [sens, aml, prec, acc, inertia, dragScale] = await Promise.all([
+    const [sens, aml, prec, speed, acc, inertia, dragScale] = await Promise.all([
       getSensitivity(),
       getAutoLayer(),
       getPrecisionScale(),
+      getSpeedScale(),
       getAccel(),
       getInertia(),
       getDragScale(),
@@ -204,6 +208,9 @@ export function TrackballConfig({ store }: Props) {
     }
     if (prec && prec.denominator > 0) {
       setPrecisionSensitivity(prec.numerator / prec.denominator);
+    }
+    if (speed && speed.denominator > 0) {
+      setSpeedSensitivity(speed.numerator / speed.denominator);
     }
     if (acc) {
       setAccelMode(acc.enabled ? 1 : 0);
@@ -272,9 +279,10 @@ export function TrackballConfig({ store }: Props) {
         });
         continue;
       }
-      const [sens, prec, acc, inertia, dragScale] = await Promise.all([
+      const [sens, prec, speed, acc, inertia, dragScale] = await Promise.all([
         getSensitivity(),
         getPrecisionScale(),
+        getSpeedScale(),
         getAccel(),
         getInertia(),
         getDragScale(),
@@ -285,6 +293,7 @@ export function TrackballConfig({ store }: Props) {
         detail: formatEntryLabel(entry, bleProfiles, usbSlots),
         cpi: sens?.cpi,
         precision: prec ? `${prec.numerator}/${prec.denominator}` : undefined,
+        speed: speed ? `${speed.numerator}/${speed.denominator}` : undefined,
         accel: acc ? `${acc.enabled ? 'ON' : 'OFF'} ${acc.maxMilli / 1000}x` : undefined,
         inertia: inertia ? `${inertia.enabled ? 'ON' : 'OFF'} ${inertia.decayMilli}/${inertia.startSpeed}` : undefined,
         drag: dragScale ? `${dragScale.enabled ? 'ON' : 'OFF'} ${dragScale.numerator}/${dragScale.denominator}` : undefined,
@@ -362,6 +371,11 @@ export function TrackballConfig({ store }: Props) {
   const handlePrecisionChange = (val: number) => {
     setPrecisionSensitivity(val);
     sendIfRealtime(() => setPrecisionScale(Math.round(val * 100), 100));
+  };
+
+  const handleSpeedChange = (val: number) => {
+    setSpeedSensitivity(val);
+    sendIfRealtime(() => setSpeedScale(Math.round(val * 100), 100));
   };
 
   const handleAccelModeChange = (val: number) => {
@@ -471,6 +485,7 @@ export function TrackballConfig({ store }: Props) {
               </div>
               <div style={{ fontSize: 11 }}><span style={{ color: 'var(--text-muted)' }}>CPI </span>{summary.cpi ?? '--'}</div>
               <div style={{ fontSize: 11 }}><span style={{ color: 'var(--text-muted)' }}>精密 </span>{summary.precision ?? '--'}</div>
+              <div style={{ fontSize: 11 }}><span style={{ color: 'var(--text-muted)' }}>速度 </span>{summary.speed ?? '--'}</div>
               <div style={{ fontSize: 11 }}><span style={{ color: 'var(--text-muted)' }}>Accel </span>{summary.accel ?? '--'}</div>
               <div style={{ fontSize: 11 }}><span style={{ color: 'var(--text-muted)' }}>Inertia/Drag </span>{summary.inertia ?? '--'} / {summary.drag ?? '--'}</div>
             </button>
@@ -693,6 +708,24 @@ export function TrackballConfig({ store }: Props) {
         </div>
       </div>
 
+      {/* Cursor Speed (independent of CPI) */}
+      <div className="config-section">
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+          <span>カーソル速度</span>
+          <span style={{ color: 'var(--accent)', fontWeight: 700, fontSize: 16 }}>{speedSensitivity.toFixed(2)}x</span>
+        </div>
+        <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 4 }}>CPIとは別に常時かかる速度倍率。CPIはセンサー感度、こちらは最終的な動きの速さの微調整用です。1.0 で等倍。</div>
+        <input type="range" className="timing-slider" min={0.1} max={2.0} step={0.05} value={speedSensitivity} onChange={e => handleSpeedChange(Number(e.target.value))} />
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text-muted)' }}>
+          <span>0.1x</span><span>2.0x</span>
+        </div>
+        <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', marginTop: 4 }}>
+          {SPEED_PRESETS.map(p => (
+            <button key={p} className={`preset-btn ${Math.abs(speedSensitivity - p) < 0.01 ? 'selected' : ''}`} onClick={() => handleSpeedChange(p)}>{p}x</button>
+          ))}
+        </div>
+      </div>
+
       {/* Scroll Sensitivity */}
       <div className="config-section">
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
@@ -855,13 +888,14 @@ export function TrackballConfig({ store }: Props) {
             }
             await setSensitivity(cpi, Math.round(scrollSensitivity * 100), 100, scrollDirection === 'inverted');
             await setPrecisionScale(Math.round(precisionSensitivity * 100), 100);
+            await setSpeedScale(Math.round(speedSensitivity * 100), 100);
             await setAccel(accelMode > 0, Math.round(accelMaxRatio * 1000), accelStartSpeed, accelRampWidth);
             await savePointingChanges();
             debugLog('INF', 'Trackball', 'All settings saved to flash');
           }}>💾 保存</button>
           <button className="btn btn-outline" style={{ flex: 1 }} onClick={() => { setLoaded(false); }}>元に戻す</button>
           <button className="btn btn-outline" style={{ flex: 1 }} onClick={() => {
-            setCpi(800); setScrollSensitivity(1.0); setPrecisionSensitivity(0.25);
+            setCpi(800); setScrollSensitivity(1.0); setPrecisionSensitivity(0.25); setSpeedSensitivity(1.0);
             setAccelMode(1); setAccelMaxRatio(1.2); setAccelStartSpeed(10); setAccelRampWidth(28);
           }}>初期値</button>
         </div>
