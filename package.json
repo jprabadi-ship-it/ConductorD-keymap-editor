@@ -2,6 +2,7 @@
   "name": "conductor-keymap-editor",
   "private": true,
   "version": "0.38.33",
+  "license": "GPL-3.0-or-later",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
