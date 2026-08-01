@@ -57,16 +57,19 @@ if [ ! -f "$DMG_SRC" ]; then
   exit 1
 fi
 
+STAMP=$(TZ=Asia/Tokyo date +%Y%m%d-%H%M)
 VERSIONED_DMG="dist/ConductorD-Studio-${VERSION}-mac-arm64.dmg"
+DATED_DMG="dist/ConductorD-Studio-${VERSION}-${STAMP}-mac-arm64.dmg"
 LATEST_DMG="dist/ConductorD-Studio-mac-arm64.dmg"
 cp "$DMG_SRC" "$VERSIONED_DMG"
+cp "$DMG_SRC" "$DATED_DMG"
 cp "$DMG_SRC" "$LATEST_DMG"
 
 echo "==> Creating GitHub release ${TAG}"
-gh release create "$TAG" "$VERSIONED_DMG" "$LATEST_DMG" \
+gh release create "$TAG" "$VERSIONED_DMG" "$DATED_DMG" "$LATEST_DMG" \
   --repo "$REPO" \
   --title "$TAG" \
-  --notes "See in-app Version History (Header > Changelog) for details."
+  --notes "Built ${STAMP} JST. See in-app Version History (Header > Changelog) for details."
 
 echo "==> Verifying the versioned download URL resolves"
 DOWNLOAD_URL="https://github.com/${REPO}/releases/latest/download/ConductorD-Studio-${VERSION}-mac-arm64.dmg"

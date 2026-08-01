@@ -171,6 +171,7 @@ export function Header({ store, showConsole, onToggleConsole, usbConnected, conn
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {[
+                { v: '0.38.34.0', at: '2026-08-02 JST', changes: ['Firmware Update Wizardが、`firmware-downloads/`フォルダ内にリリース資産とsha256が一致するzipがあればネットワーク再ダウンロードをスキップしてそれを使うように変更(開発用ローカルキャッシュ)。また`npm run release`で公開するDMGに日付入りコピー(`ConductorD-Studio-{version}-{YYYYMMDD-HHMM}-mac-arm64.dmg`, JST)も追加、ファームウェアの日付入りzipと同じ考え方に統一'] },
                 { v: '0.38.33.0', at: '2026-07-31 JST', changes: ['新機能: トラックボールタブに「カーソル速度」スライダーを追加(0.1x〜2.0x)。CPIとは別に常時かかる速度倍率で、LinearMouse等の外部ユーティリティなしでカーソルの速さを微調整可能に。ファームウェア側に新しい`studio_speed_scaler`入力プロセッサとget/set_speed_scale RPCを追加(要ファームウェア更新)。デバイス設定バックアップ(JSON)にも対応'] },
                 { v: '0.38.32.0', at: '2026-07-24 JST', changes: ['新機能: トレイメニューに「内蔵キーボードを無効にする」チェックボックスを追加。ConductorやiPadをMacBookのキーボードの上に載せて使う際の誤入力防止用。`hidutil`のDeviceDisabledプロパティを使用(Built-In判定なので機種によらず動作)、カーネル拡張や管理者権限は不要。この設定はOSセッション単位で、再起動すれば必ず有効な状態に戻る(アプリを終了しただけでは元に戻らない点に注意)'] },
                 { v: '0.38.31.0', at: '2026-07-24 JST', changes: ['トレイのバッテリー表示を、アイコンに数字を合成する方式から`Tray.setTitle()`によるネイティブ描画に変更。カスタム合成方式(隠しウィンドウのCanvas)はフォントを何度変えてもぼやけて読みにくく(透明ウィンドウでは通常のフォントスムージングが効かないため)、macOS標準のメニューバーフォントで表示することで解消。表示は「[アイコン] L90 R92」(アイコンの右側、macOS仕様上L/Rでの左右挟み込みは不可)'] },

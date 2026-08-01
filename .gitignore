@@ -13,6 +13,11 @@ dist-ssr
 release
 *.local
 
+# Local firmware cache for the Firmware Update Wizard's local-file
+# fast path (electron/main.cjs, findLocalFirmwareZip) -- not tracked,
+# each dev populates it with `gh release download` as needed.
+firmware-downloads/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

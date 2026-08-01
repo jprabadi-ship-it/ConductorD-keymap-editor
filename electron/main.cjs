@@ -3,6 +3,7 @@ const path = require('node:path')
 const os = require('node:os')
 const { execFile } = require('node:child_process')
 const fs = require('node:fs')
+const crypto = require('node:crypto')
 const extractZip = require('extract-zip')
 
 const isDev = !app.isPackaged
@@ -454,6 +455,26 @@ ipcMain.handle('check-firmware-latest', async () => {
   })
 })
 
+// Local firmware cache: if a zip in this dev-repo folder has the same sha256
+// digest as the firmware-latest release's ConductorD-firmware-latest.zip
+// asset, use it instead of re-downloading (same bytes either way -- the CI
+// workflow publishes the dated copy as a plain `cp` of the rolling one).
+// Only ever a fast path; any mismatch or error falls through to the normal
+// network download below.
+const LOCAL_FIRMWARE_CACHE_DIR = path.join(__dirname, '..', 'firmware-downloads')
+
+function findLocalFirmwareZip(expectedDigest) {
+  if (!expectedDigest || !fs.existsSync(LOCAL_FIRMWARE_CACHE_DIR)) return null
+  const wantHash = expectedDigest.replace(/^sha256:/, '')
+  for (const name of fs.readdirSync(LOCAL_FIRMWARE_CACHE_DIR)) {
+    if (!name.endsWith('.zip')) continue
+    const filePath = path.join(LOCAL_FIRMWARE_CACHE_DIR, name)
+    const hash = crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex')
+    if (hash === wantHash) return filePath
+  }
+  return null
+}
+
 // Firmware Update Wizard: download+extract the firmware-latest release ZIP
 // so the renderer can hand the individual .uf2 files to a user-picked UF2
 // bootloader drive via the File System Access API. User-initiated (unlike
@@ -474,30 +495,39 @@ ipcMain.handle('download-firmware-release', async () => {
 
   let workDir = null
   try {
-    const bodyJson = await execFileAsync(
+    const releaseJson = await execFileAsync(
       ghPath,
-      ['release', 'view', 'firmware-latest', '--repo', 'jprabadi-ship-it/conductor', '--json', 'body'],
+      ['release', 'view', 'firmware-latest', '--repo', 'jprabadi-ship-it/conductor', '--json', 'body,assets'],
       { timeout: 10000 },
     )
-    const body = JSON.parse(bodyJson).body || ''
+    const release = JSON.parse(releaseJson)
+    const body = release.body || ''
     const shaMatch = body.match(/@ `([0-9a-f]{7,40})`/)
     if (!shaMatch) throw new Error('release body からビルドSHAを取得できませんでした')
     const sha = shaMatch[1].slice(0, 8)
 
     workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'conductord-fw-'))
-    await execFileAsync(
-      ghPath,
-      [
-        'release', 'download', 'firmware-latest',
-        '--repo', 'jprabadi-ship-it/conductor',
-        '--dir', workDir,
-        '--clobber',
-        '--pattern', 'ConductorD-firmware-latest.zip',
-      ],
-      { timeout: 30000 },
-    )
 
-    const zipPath = path.join(workDir, 'ConductorD-firmware-latest.zip')
+    const remoteAsset = (release.assets || []).find((a) => a.name === 'ConductorD-firmware-latest.zip')
+    const localZip = findLocalFirmwareZip(remoteAsset?.digest)
+
+    let zipPath
+    if (localZip) {
+      zipPath = localZip
+    } else {
+      await execFileAsync(
+        ghPath,
+        [
+          'release', 'download', 'firmware-latest',
+          '--repo', 'jprabadi-ship-it/conductor',
+          '--dir', workDir,
+          '--clobber',
+          '--pattern', 'ConductorD-firmware-latest.zip',
+        ],
+        { timeout: 30000 },
+      )
+      zipPath = path.join(workDir, 'ConductorD-firmware-latest.zip')
+    }
     const extractDir = path.join(workDir, 'extracted')
     fs.mkdirSync(extractDir)
     await extractZip(zipPath, { dir: extractDir })
