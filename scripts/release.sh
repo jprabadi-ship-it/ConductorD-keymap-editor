@@ -13,7 +13,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-REPO="jprabadi-ship-it/conductor-keymap-editor"
+REPO="jprabadi-ship-it/ConductorD-keymap-editor"
 VERSION=$(node -p "require('./package.json').version")
 TAG="v${VERSION}"
 

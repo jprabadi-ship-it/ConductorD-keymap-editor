@@ -8,8 +8,8 @@
       "mcp__visualize__read_me",
       "mcp__visualize__show_widget",
       "Bash(npm create *)",
-      "Bash(mv conductor-keymap-editor/* conductor-keymap-editor/.* .)",
-      "Bash(rmdir conductor-keymap-editor *)",
+      "Bash(mv ConductorD-keymap-editor/* ConductorD-keymap-editor/.* .)",
+      "Bash(rmdir ConductorD-keymap-editor *)",
       "Bash(npm install *)",
       "mcp__Claude_Preview__preview_start",
       "Bash(git -C /Users/miyashitakazuya/conductor_keymap_editor log --oneline)",
@@ -37,7 +37,7 @@
   "autoMode": {
     "allow": [
       "$defaults",
-      "Bash(git push origin main) in /Users/miyashitakazuya/conductor-keymap-editor is pre-authorized: solo-maintained private repo with no branch protection or PR workflow."
+      "Bash(git push origin main) in /Users/miyashitakazuya/ConductorD-keymap-editor is pre-authorized: solo-maintained private repo with no branch protection or PR workflow."
     ]
   }
 }

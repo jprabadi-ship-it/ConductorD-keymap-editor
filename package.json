@@ -10,7 +10,7 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "electron:dev": "concurrently -k -s first \"vite\" \"wait-on http://localhost:5173/conductor-keymap-editor/ && electron .\"",
+    "electron:dev": "concurrently -k -s first \"vite\" \"wait-on http://localhost:5173/ConductorD-keymap-editor/ && electron .\"",
     "electron:build": "tsc -b && cross-env ELECTRON_BUILD=1 vite build && electron-builder",
     "release": "bash scripts/release.sh"
   },

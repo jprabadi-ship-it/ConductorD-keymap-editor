@@ -62,7 +62,7 @@ function createWindow() {
   openExternalLinks(win.webContents)
 
   if (isDev) {
-    win.loadURL('http://localhost:5173/conductor-keymap-editor/')
+    win.loadURL('http://localhost:5173/ConductorD-keymap-editor/')
     win.webContents.openDevTools({ mode: 'detach' })
   } else {
     win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
@@ -154,7 +154,7 @@ function createPopupWindow() {
   openExternalLinks(popupWin.webContents)
 
   if (isDev) {
-    popupWin.loadURL('http://localhost:5173/conductor-keymap-editor/#/popup')
+    popupWin.loadURL('http://localhost:5173/ConductorD-keymap-editor/#/popup')
   } else {
     popupWin.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), { hash: '/popup' })
   }

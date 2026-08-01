@@ -6,5 +6,5 @@ export default defineConfig({
   plugins: [react()],
   // Electron loads the build via file://, which needs relative asset
   // paths; GitHub Pages needs the repo-name subpath.
-  base: process.env.ELECTRON_BUILD ? './' : '/conductor-keymap-editor/',
+  base: process.env.ELECTRON_BUILD ? './' : '/ConductorD-keymap-editor/',
 })

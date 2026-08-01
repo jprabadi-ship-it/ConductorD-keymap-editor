@@ -29,7 +29,7 @@ npm run dev
 The Vite dev server serves the app at:
 
 ```text
-http://127.0.0.1:5173/conductor-keymap-editor/
+http://127.0.0.1:5173/ConductorD-keymap-editor/
 ```
 
 ## Build
@@ -44,12 +44,12 @@ npm run preview
 The app is configured for GitHub Pages with:
 
 ```ts
-base: '/conductor-keymap-editor/'
+base: '/ConductorD-keymap-editor/'
 ```
 
 Current deployed URL:
 
-https://jprabadi-ship-it.github.io/conductor-keymap-editor/
+https://jprabadi-ship-it.github.io/ConductorD-keymap-editor/
 
 ## Notes
 

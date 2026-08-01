@@ -3,9 +3,9 @@
 ## 現在の状態
 
 ### デプロイ済み
-- URL: https://jprabadi-ship-it.github.io/conductor-keymap-editor/
+- URL: https://jprabadi-ship-it.github.io/ConductorD-keymap-editor/
 - バージョン: v0.3.5
-- リポジトリ: https://github.com/jprabadi-ship-it/conductor-keymap-editor
+- リポジトリ: https://github.com/jprabadi-ship-it/ConductorD-keymap-editor
 
 ### 動作確認済み機能
 - **キーマップ編集**: 全14レイヤー、40キーの編集・Read・Write
@@ -37,7 +37,7 @@
 - RXバッファサイズ拡張（現在128バイト）
 - `config/west.yml` で zmk-studio-messages のrevisionを更新
 
-**3. エディタUI (`conductor-keymap-editor`)**
+**3. エディタUI (`ConductorD-keymap-editor`)**
 - `zmk-studio-proto.json` にmacrosサブシステムを追加
 - `usbService.ts` に listAllMacros, getMacroData, setMacro を追加
 - MacroEditor のステップ編集をデバイス通信に接続
