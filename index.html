@@ -5,6 +5,13 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>conductor-keymap-editor</title>
+    <script>
+      // Set data-theme before the stylesheet paints: :root's default colors
+      // are dark, and main.tsx's theme init only runs after HTML parsing
+      // finishes, so without this a light-mode (the default) user sees a
+      // flash of dark on every load.
+      document.documentElement.setAttribute('data-theme', localStorage.getItem('conductor-theme') || 'light');
+    </script>
   </head>
   <body>
     <div id="root"></div>
