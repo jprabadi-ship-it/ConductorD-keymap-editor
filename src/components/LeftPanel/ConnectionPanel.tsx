@@ -126,8 +126,10 @@ export function ConnectionPanel({ connected, connectionType, onConnectionChange,
         {connected && health?.runtime && (
           <div className="connection-compact-health">
             <BatteryPill label="L" value={health.runtime.peripheralL} />
-            <BatteryPill label="D" value={health.runtime.central} charging={health.runtime.charging} />
-            <BatteryPill label="R" value={health.runtime.peripheralR} />
+            {health.runtime.topology === 'dongle' && (
+              <BatteryPill label="D" value={health.runtime.central} charging={health.runtime.charging} />
+            )}
+            <BatteryPill label="R" value={health.runtime.peripheralR} charging={health.runtime.topology === 'standalone' ? health.runtime.charging : undefined} />
             <div className="connection-compact-meta">
               <div>{health.deviceName || 'Conductor'}{health.firmwareVersion ? ` / ${health.firmwareVersion}` : ''}</div>
               <div>
@@ -174,8 +176,10 @@ export function ConnectionPanel({ connected, connectionType, onConnectionChange,
         <div style={{ margin: '8px 0', padding: '8px 0', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-around', marginBottom: 8 }}>
             <BatteryPill label="L" value={health.runtime.peripheralL} />
-            <BatteryPill label="Dongle" value={health.runtime.central} charging={health.runtime.charging} />
-            <BatteryPill label="R" value={health.runtime.peripheralR} />
+            {health.runtime.topology === 'dongle' && (
+              <BatteryPill label="Dongle" value={health.runtime.central} charging={health.runtime.charging} />
+            )}
+            <BatteryPill label="R" value={health.runtime.peripheralR} charging={health.runtime.topology === 'standalone' ? health.runtime.charging : undefined} />
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, color: 'var(--text-secondary)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>

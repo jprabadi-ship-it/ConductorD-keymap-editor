@@ -35,6 +35,7 @@ function resetConnectionState() {
   }
   pendingRequests.clear();
   unlocked = false;
+  cachedDeviceName = null;
 }
 
 export function onDeviceDisconnect(cb: () => void) {
@@ -369,12 +370,23 @@ async function sendRequest(payload: Record<string, unknown>, minTimeoutMs?: numb
 }
 
 // ZMK Studio API
+// Device name doubles as the topology marker: the dongle build advertises
+// "conductorD", standalone R advertises "conductor". Cached so
+// getRuntimeState can remap battery slots without an extra RPC per poll;
+// cleared on disconnect (resetConnectionState).
+let cachedDeviceName: string | null = null;
+
+export function isStandaloneCentral(): boolean {
+  return cachedDeviceName !== null && !cachedDeviceName.toLowerCase().includes('conductord');
+}
+
 export async function getDeviceInfo(): Promise<{ name: string; firmwareVersion: string } | null> {
   try {
     const resp = await sendRequest({ core: { getDeviceInfo: true } });
     const info = resp.core?.getDeviceInfo;
     if (info) {
       debugLog('INF', 'USB', `Device: ${info.name} (FW: ${info.firmwareVersion})`);
+      cachedDeviceName = info.name;
       return { name: info.name, firmwareVersion: info.firmwareVersion };
     }
     return null;
@@ -385,7 +397,11 @@ export async function getDeviceInfo(): Promise<{ name: string; firmwareVersion: 
 }
 
 export interface RuntimeBatteryState {
-  central: number | null; // dongle; null = unknown (255 on the wire)
+  // 'dongle': central is the (battery-less) dongle, slot0=R, slot1=L.
+  // 'standalone': central is R itself; the fields below are already remapped
+  // so peripheralR = R's own battery and central = null (no dongle exists).
+  topology: 'dongle' | 'standalone';
+  central: number | null; // dongle; null = unknown (255 on the wire) or standalone
   peripheralR: number | null; // slot 0 -- has the trackball
   peripheralL: number | null; // slot 1
   charging: boolean;
@@ -410,10 +426,35 @@ function normalizeBattery(v: number | undefined): number | null {
 
 export async function getRuntimeState(): Promise<RuntimeBatteryState | null> {
   try {
+    // Topology detection needs the device name; fetch it once if a poll
+    // lands before any getDeviceInfo call has populated the cache.
+    if (cachedDeviceName === null) {
+      await getDeviceInfo();
+    }
     const resp = await sendRequest({ core: { getRuntimeState: true } });
     const rs = resp.core?.getRuntimeState;
     if (!rs) return null;
+    if (isStandaloneCentral()) {
+      // Standalone R: the central IS R (battery in batteryCentral), and its
+      // single split peripheral (slot 0, batteryPeripheral) is L. Remap here
+      // so every consumer (connection panel, minimap, tray) shows the right
+      // labels without knowing about topology.
+      return {
+        topology: 'standalone',
+        central: null,
+        peripheralR: normalizeBattery(rs.batteryCentral),
+        peripheralL: normalizeBattery(rs.batteryPeripheral),
+        charging: !!rs.charging,
+        highestLayer: rs.highestLayer ?? 0,
+        activeOs: rs.activeOs ?? 0,
+        osProfileEnabled: !!rs.osProfileEnabled,
+        activeLayersBitmask: rs.activeLayersBitmask ?? 0,
+        peripheralRConnected: true, // R is the device we're talking to
+        peripheralLConnected: rs.peripheralRConnected, // slot 0 = L here
+      };
+    }
     return {
+      topology: 'dongle',
       central: normalizeBattery(rs.batteryCentral),
       peripheralR: normalizeBattery(rs.batteryPeripheral),
       peripheralL: normalizeBattery(rs.batteryPeripheralL),
