@@ -47,6 +47,8 @@
       "target": "dmg",
       "hardenedRuntime": true,
       "notarize": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
       "extendInfo": {
         "NSBluetoothAlwaysUsageDescription": "ConductorD Studio uses Bluetooth to configure Conductor keyboards over BLE."
       }
