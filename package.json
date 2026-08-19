@@ -1,7 +1,7 @@
 {
   "name": "conductor-keymap-editor",
   "private": true,
-  "version": "0.38.38",
+  "version": "0.38.39",
   "license": "GPL-3.0-or-later",
   "type": "module",
   "main": "electron/main.cjs",
@@ -45,6 +45,8 @@
       "icon": "build/icon.icns",
       "category": "public.app-category.utilities",
       "target": "dmg",
+      "hardenedRuntime": true,
+      "notarize": true,
       "extendInfo": {
         "NSBluetoothAlwaysUsageDescription": "ConductorD Studio uses Bluetooth to configure Conductor keyboards over BLE."
       }

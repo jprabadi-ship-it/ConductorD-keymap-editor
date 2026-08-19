@@ -48,7 +48,20 @@ if ! grep -q "v: '${VERSION}\.0'" src/components/Header/Header.tsx; then
   exit 1
 fi
 
-echo "==> Building Electron app"
+echo "==> Checking notarization credentials"
+# mac.notarize=true (package.json) makes electron-builder submit the app to
+# Apple's notary service; it reads the keychain profile named by
+# APPLE_KEYCHAIN_PROFILE. Create the profile once with:
+#   xcrun notarytool store-credentials "conductorD-notary" \
+#     --apple-id <Apple ID> --team-id 3HCG7Y94FX --password <app-specific password>
+export APPLE_KEYCHAIN_PROFILE="${APPLE_KEYCHAIN_PROFILE:-conductorD-notary}"
+if ! security find-generic-password -s "com.apple.gke.notary.tool" >/dev/null 2>&1; then
+  echo "ERROR: no notarytool credentials in the keychain." >&2
+  echo "Run: xcrun notarytool store-credentials \"conductorD-notary\" --apple-id <Apple ID> --team-id 3HCG7Y94FX --password <app-specific password>" >&2
+  exit 1
+fi
+
+echo "==> Building Electron app (signing + notarization -- the notary upload can take a few minutes)"
 npm run electron:build
 
 DMG_SRC="dist/ConductorD Studio-${VERSION}-arm64.dmg"
