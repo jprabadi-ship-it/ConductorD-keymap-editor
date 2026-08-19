@@ -204,12 +204,28 @@ export async function disconnectBle(): Promise<void> {
   }
 }
 
-async function bleWriteFrame(frame: Uint8Array): Promise<void> {
-  if (!bleChar) throw new Error('BLE not connected');
-  for (let offset = 0; offset < frame.length; offset += BLE_WRITE_CHUNK) {
-    const chunk = frame.slice(offset, offset + BLE_WRITE_CHUNK);
-    await bleChar.writeValueWithResponse(chunk);
-  }
+// Web Bluetooth allows only ONE outstanding GATT operation per device:
+// concurrent writeValueWithResponse calls reject with "GATT operation
+// already in progress". The editor freely issues RPCs in parallel (battery
+// polls, macro reads, subscribeInput, ...), which the serial transport
+// tolerates (stream writers queue internally) but BLE does not -- so chain
+// every frame write through a queue. Serializing whole frames (not just
+// chunks) also prevents two frames' chunks from interleaving on the wire,
+// which would corrupt the SLIP framing on the device side.
+let bleWriteQueue: Promise<void> = Promise.resolve();
+
+function bleWriteFrame(frame: Uint8Array): Promise<void> {
+  const task = bleWriteQueue.then(async () => {
+    if (!bleChar) throw new Error('BLE not connected');
+    for (let offset = 0; offset < frame.length; offset += BLE_WRITE_CHUNK) {
+      const chunk = frame.slice(offset, offset + BLE_WRITE_CHUNK);
+      await bleChar.writeValueWithResponse(chunk);
+    }
+  });
+  // Keep the chain alive past failures so one rejected write doesn't wedge
+  // every subsequent request.
+  bleWriteQueue = task.catch(() => {});
+  return task;
 }
 
 // Serial connection
