@@ -635,11 +635,24 @@ function wireSerialPermissions(ses) {
 // resolve navigator.bluetooth.requestDevice() via this event. Same
 // single-candidate auto-select / multi-candidate prompt pattern.
 function wireBluetoothPermissions(ses) {
+  // select-bluetooth-device fires repeatedly while Chromium scans, starting
+  // with an EMPTY list. Cancelling on that first empty emission (the old
+  // behavior) made requestDevice reject within milliseconds, so a device
+  // that isn't already connected (e.g. standalone R advertising on the
+  // hidden pair slot) never got a chance to be discovered. Instead, keep
+  // the scan alive and only give up after a quiet period with no devices.
+  let bleScanTimeout = null
   ses.on('select-bluetooth-device', (event, deviceList, callback) => {
     event.preventDefault()
+    clearTimeout(bleScanTimeout)
 
-    if (deviceList.length <= 1) {
-      callback(deviceList.length === 1 ? deviceList[0].deviceId : '')
+    if (deviceList.length === 0) {
+      bleScanTimeout = setTimeout(() => callback(''), 15000)
+      return
+    }
+
+    if (deviceList.length === 1) {
+      callback(deviceList[0].deviceId)
       return
     }
 

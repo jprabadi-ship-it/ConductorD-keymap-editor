@@ -171,6 +171,7 @@ export function Header({ store, showConsole, onToggleConsole, usbConnected, conn
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {[
+                { v: '0.38.37.0', at: '2026-08-19 JST', changes: ['アプリ版のConnect BLEが数ミリ秒で無反応キャンセルされる不具合を修正。ElectronのBLEデバイス選択イベントはスキャン中に何度も発火し最初は空リストで来るが、その初回の空リストで即キャンセルしていたため、未接続デバイス(standalone Rの隠しペアリングスロット等)を発見する時間がなかった。スキャンを継続し、15秒間デバイスが見つからない場合のみ諦めるように変更(Web版は元々Chromeのピッカーが出るため影響なし)'] },
                 { v: '0.38.36.0', at: '2026-08-19 JST', changes: ['standalone R(ドングルなし構成)接続時のバッテリー表示を修正。これまでドングルモード前提のラベルのまま「D=実はR本体、R=実はL、L=空」と取り違えて表示していた。デバイス名(conductor/conductorD)で構成を自動判別し、standalone時は「L / R」の2枠表示に補正(接続パネル・ミニマップ・トレイ・診断タブすべて対応)'] },
                 { v: '0.38.35.0', at: '2026-08-02 JST', changes: ['index.htmlのスタイルシート読み込みより前に実行する同期スクリプトでdata-theme属性を設定するように変更。ライトモード(デフォルト)利用時、ページ読み込みごとに一瞬ダーク配色がちらついてから切り替わっていたFOUC(flash of unstyled content)を解消'] },
                 { v: '0.38.34.0', at: '2026-08-02 JST', changes: ['Firmware Update Wizardが、`firmware-downloads/`フォルダ内にリリース資産とsha256が一致するzipがあればネットワーク再ダウンロードをスキップしてそれを使うように変更(開発用ローカルキャッシュ)。また`npm run release`で公開するDMGに日付入りコピー(`ConductorD-Studio-{version}-{YYYYMMDD-HHMM}-mac-arm64.dmg`, JST)も追加、ファームウェアの日付入りzipと同じ考え方に統一'] },
