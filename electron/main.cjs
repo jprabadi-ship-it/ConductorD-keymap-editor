@@ -455,6 +455,134 @@ ipcMain.handle('check-firmware-latest', async () => {
   })
 })
 
+// ===== Native BLE bridge =====
+// Web Bluetooth is broken in Electron on recent macOS (electron/electron
+// #47046: the requestDevice chooser cancels instantly and
+// select-bluetooth-device never fires), so the renderer's Connect BLE goes
+// through this main-process bridge instead: @stoprocent/noble talks to
+// CoreBluetooth directly (same strategy as ZMK Studio's Tauri app, which
+// uses native Rust BLE rather than the browser stack). Requires the
+// com.apple.security.device.bluetooth entitlement + Info.plist usage
+// description, both set in the build config.
+const STUDIO_BLE_SERVICE_UUID = '0000000001966107c967c5cfb1c2482a'
+const STUDIO_BLE_RPC_CHRC_UUID = '0000000101966107c967c5cfb1c2482a'
+
+let nobleMod = null // lazy: CoreBluetooth init triggers the OS permission prompt
+let blePeripheral = null
+let bleRpcChar = null
+
+function bleBroadcast(channel, payload) {
+  for (const w of BrowserWindow.getAllWindows()) {
+    try { w.webContents.send(channel, payload) } catch { /* window closing */ }
+  }
+}
+
+function bleNativeCleanup() {
+  if (blePeripheral) {
+    try { blePeripheral.removeAllListeners('disconnect') } catch { /* already gone */ }
+  }
+  blePeripheral = null
+  bleRpcChar = null
+}
+
+// Single-flight: rapid repeat clicks (or an auto-reconnect loop) must share
+// one connect attempt instead of racing 'discover' listeners and connecting
+// to the same peripheral a dozen times in parallel.
+let bleConnectInFlight = null
+
+ipcMain.handle('ble-native-connect', () => {
+  if (bleConnectInFlight) return bleConnectInFlight
+  bleConnectInFlight = bleNativeConnectOnce().finally(() => { bleConnectInFlight = null })
+  return bleConnectInFlight
+})
+
+async function bleNativeConnectOnce() {
+  try {
+    if (blePeripheral) {
+      try { await blePeripheral.disconnectAsync() } catch { /* stale */ }
+      bleNativeCleanup()
+    }
+    if (!nobleMod) nobleMod = require('@stoprocent/noble')
+    const noble = nobleMod
+
+    if (noble._state !== 'poweredOn' && noble.state !== 'poweredOn') {
+      bleBroadcast('ble-scan-log', `adapter state: ${noble.state || noble._state}, waiting for poweredOn...`)
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`Bluetoothアダプタが有効になりません (state=${noble.state || noble._state})`)), 10000)
+        noble.once('stateChange', (state) => {
+          clearTimeout(timer)
+          if (state === 'poweredOn') resolve()
+          else reject(new Error(`Bluetoothが使用できません (state=${state})`))
+        })
+        if (noble.state === 'poweredOn') { clearTimeout(timer); resolve() }
+      })
+    }
+
+    bleBroadcast('ble-scan-log', 'scanning for Studio BLE service...')
+    const peripheral = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        noble.stopScanning()
+        noble.removeAllListeners('discover')
+        reject(new Error('スキャンしましたがConductorが見つかりませんでした (15秒)'))
+      }, 15000)
+      noble.on('discover', (p) => {
+        bleBroadcast('ble-scan-log', `found: ${p.advertisement.localName || p.id}`)
+        clearTimeout(timer)
+        noble.stopScanning()
+        noble.removeAllListeners('discover')
+        resolve(p)
+      })
+      // allowDuplicates=false; filter by the Studio service UUID so only
+      // Conductor devices (advertising it, or already connected) match.
+      noble.startScanning([STUDIO_BLE_SERVICE_UUID], false, (err) => {
+        if (err) { clearTimeout(timer); reject(err) }
+      })
+    })
+
+    bleBroadcast('ble-scan-log', `connecting to ${peripheral.advertisement.localName || peripheral.id}...`)
+    await peripheral.connectAsync()
+
+    const { characteristics } = await peripheral.discoverSomeServicesAndCharacteristicsAsync(
+      [STUDIO_BLE_SERVICE_UUID], [STUDIO_BLE_RPC_CHRC_UUID])
+    if (!characteristics || characteristics.length === 0) {
+      try { await peripheral.disconnectAsync() } catch { /* best effort */ }
+      throw new Error('Studio RPCキャラクタリスティックが見つかりません')
+    }
+
+    blePeripheral = peripheral
+    bleRpcChar = characteristics[0]
+
+    bleRpcChar.on('data', (data) => {
+      bleBroadcast('ble-native-data', Array.from(data))
+    })
+    await bleRpcChar.subscribeAsync()
+
+    peripheral.once('disconnect', () => {
+      bleNativeCleanup()
+      bleBroadcast('ble-native-disconnected', null)
+    })
+
+    return { ok: true, name: peripheral.advertisement.localName || 'conductor' }
+  } catch (e) {
+    bleNativeCleanup()
+    return { ok: false, error: e.message || String(e) }
+  }
+}
+
+ipcMain.handle('ble-native-write', async (_event, bytes) => {
+  if (!bleRpcChar) throw new Error('BLE not connected')
+  // write-with-response, mirroring the web path's writeValueWithResponse
+  await bleRpcChar.writeAsync(Buffer.from(bytes), false)
+  return true
+})
+
+ipcMain.handle('ble-native-disconnect', async () => {
+  const p = blePeripheral
+  bleNativeCleanup()
+  if (p) { try { await p.disconnectAsync() } catch { /* already gone */ } }
+  return true
+})
+
 // Local firmware cache: if a zip in this dev-repo folder has the same sha256
 // digest as the firmware-latest release's ConductorD-firmware-latest.zip
 // asset, use it instead of re-downloading (same bytes either way -- the CI
@@ -641,10 +769,21 @@ function wireBluetoothPermissions(ses) {
   // that isn't already connected (e.g. standalone R advertising on the
   // hidden pair slot) never got a chance to be discovered. Instead, keep
   // the scan alive and only give up after a quiet period with no devices.
+  // Relay scan progress into the renderer's debug console: the packaged app
+  // has no visible main-process stdout, and Web Bluetooth's renderer-side
+  // errors don't say whether this event ever fired.
+  const bleScanLog = (msg) => {
+    console.log(`[ble-scan] ${msg}`)
+    for (const w of BrowserWindow.getAllWindows()) {
+      try { w.webContents.send('ble-scan-log', msg) } catch { /* window closing */ }
+    }
+  }
+
   let bleScanTimeout = null
   ses.on('select-bluetooth-device', (event, deviceList, callback) => {
     event.preventDefault()
     clearTimeout(bleScanTimeout)
+    bleScanLog(`select-bluetooth-device: ${deviceList.length} device(s) ${deviceList.map((d) => d.deviceName || d.deviceId).join(', ') || '(none yet)'}`)
 
     if (deviceList.length === 0) {
       bleScanTimeout = setTimeout(() => callback(''), 15000)

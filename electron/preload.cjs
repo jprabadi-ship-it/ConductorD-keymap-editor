@@ -44,4 +44,26 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('reclaim-port', listener)
     return () => ipcRenderer.removeListener('reclaim-port', listener)
   },
+  onBleScanLog: (callback) => {
+    const listener = (_event, msg) => callback(msg)
+    ipcRenderer.on('ble-scan-log', listener)
+    return () => ipcRenderer.removeListener('ble-scan-log', listener)
+  },
+
+  // Native BLE bridge (main-process noble) -- see main.cjs. Replaces the
+  // renderer's navigator.bluetooth path, which Electron currently breaks on
+  // recent macOS (electron#47046).
+  bleNativeConnect: () => ipcRenderer.invoke('ble-native-connect'),
+  bleNativeWrite: (bytes) => ipcRenderer.invoke('ble-native-write', bytes),
+  bleNativeDisconnect: () => ipcRenderer.invoke('ble-native-disconnect'),
+  onBleNativeData: (callback) => {
+    const listener = (_event, bytes) => callback(bytes)
+    ipcRenderer.on('ble-native-data', listener)
+    return () => ipcRenderer.removeListener('ble-native-data', listener)
+  },
+  onBleNativeDisconnected: (callback) => {
+    const listener = () => callback()
+    ipcRenderer.on('ble-native-disconnected', listener)
+    return () => ipcRenderer.removeListener('ble-native-disconnected', listener)
+  },
 })

@@ -135,13 +135,66 @@ let bleDevice: any = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let bleChar: any = null;
 
+// Native BLE (Electron only): the main process talks to CoreBluetooth via
+// noble and relays frames over IPC, because Electron's own Web Bluetooth is
+// broken on recent macOS (chooser cancels instantly, electron#47046).
+let bleNativeActive = false;
+let bleNativeListenersWired = false;
+
+function wireBleNativeListeners(api: any) {
+  if (bleNativeListenersWired) return;
+  bleNativeListenersWired = true;
+  api.onBleNativeData((bytes: number[]) => {
+    decoder.onData(new Uint8Array(bytes));
+  });
+  api.onBleNativeDisconnected(() => {
+    if (!bleNativeActive) return;
+    debugLog('WRN', 'BLE', 'Native BLE disconnected');
+    bleNativeActive = false;
+    resetConnectionState();
+    onDisconnectCallback?.();
+  });
+}
+
+let bleConnectInFlight: Promise<boolean> | null = null;
+
 export async function connectBle(): Promise<boolean> {
+  // Single-flight: repeated clicks while a connect is pending share one
+  // attempt instead of stacking parallel scans.
+  if (bleConnectInFlight) return bleConnectInFlight;
+  bleConnectInFlight = connectBleOnce().finally(() => { bleConnectInFlight = null; });
+  return bleConnectInFlight;
+}
+
+async function connectBleOnce(): Promise<boolean> {
+  const nativeApi = (window as any).electronAPI;
+  if (nativeApi?.bleNativeConnect) {
+    debugLog('INF', 'BLE', 'Connecting via native BLE bridge (Electron)...');
+    wireBleNativeListeners(nativeApi);
+    const res = await nativeApi.bleNativeConnect();
+    if (!res?.ok) {
+      debugLog('ERR', 'BLE', `Native BLE connect failed: ${res?.error || 'unknown'}`);
+      return false;
+    }
+    bleNativeActive = true;
+    initProto();
+    debugLog('INF', 'BLE', `Studio native BLE connected (${res.name})`);
+    return true;
+  }
+
   if (!('bluetooth' in navigator)) {
     debugLog('ERR', 'BLE', 'Web Bluetooth API is not supported. Use Chrome or Edge.');
     alert('Web Bluetooth API is not supported. Use Chrome or Edge.');
     return false;
   }
   try {
+    // Diagnostic: false here means Chromium considers the adapter absent /
+    // unauthorized, in which case requestDevice cancels instantly without
+    // ever firing Electron's select-bluetooth-device event.
+    try {
+      const avail = await (navigator as any).bluetooth.getAvailability?.();
+      debugLog('INF', 'BLE', `Adapter availability: ${avail}`);
+    } catch { /* optional API */ }
     debugLog('INF', 'BLE', 'Requesting Bluetooth device...');
     // Same requestDevice shape as the official zmk-studio-ts-client: filter
     // by the Studio service UUID ONLY. On macOS Chrome surfaces the
@@ -182,9 +235,12 @@ export async function connectBle(): Promise<boolean> {
     return true;
   } catch (e: any) {
     if (e?.name !== 'NotFoundError') {
-      debugLog('ERR', 'BLE', `Connection failed: ${e.message || e}`);
+      debugLog('ERR', 'BLE', `Connection failed: ${e.name}: ${e.message || e}`);
     } else {
-      debugLog('INF', 'BLE', 'User cancelled device selection');
+      // NotFoundError covers BOTH "user dismissed the chooser" and
+      // "Bluetooth adapter not available" (hardened-runtime/entitlement or
+      // permission problems) -- log the real message to tell them apart.
+      debugLog('INF', 'BLE', `Device selection ended: ${e.message || 'cancelled'}`);
     }
     try { bleDevice?.gatt?.disconnect?.(); } catch { /* ignore */ }
     bleDevice = null;
@@ -194,6 +250,13 @@ export async function connectBle(): Promise<boolean> {
 }
 
 export async function disconnectBle(): Promise<void> {
+  if (bleNativeActive) {
+    bleNativeActive = false;
+    try { await (window as any).electronAPI?.bleNativeDisconnect?.(); } catch { /* best effort */ }
+    resetConnectionState();
+    debugLog('INF', 'BLE', 'Disconnected (native)');
+    return;
+  }
   try {
     if (bleChar) { await bleChar.stopNotifications().catch(() => {}); bleChar = null; }
     if (bleDevice) { bleDevice.gatt?.disconnect?.(); bleDevice = null; }
@@ -216,6 +279,13 @@ let bleWriteQueue: Promise<void> = Promise.resolve();
 
 function bleWriteFrame(frame: Uint8Array): Promise<void> {
   const task = bleWriteQueue.then(async () => {
+    if (bleNativeActive) {
+      const api = (window as any).electronAPI;
+      for (let offset = 0; offset < frame.length; offset += BLE_WRITE_CHUNK) {
+        await api.bleNativeWrite(Array.from(frame.slice(offset, offset + BLE_WRITE_CHUNK)));
+      }
+      return;
+    }
     if (!bleChar) throw new Error('BLE not connected');
     for (let offset = 0; offset < frame.length; offset += BLE_WRITE_CHUNK) {
       const chunk = frame.slice(offset, offset + BLE_WRITE_CHUNK);
@@ -293,7 +363,7 @@ async function startReading() {
 }
 
 export function isConnected(): boolean {
-  return port !== null || bleChar !== null;
+  return port !== null || bleChar !== null || bleNativeActive;
 }
 
 export async function disconnectUsb(): Promise<void> {
@@ -352,7 +422,7 @@ function handleFrame(data: Uint8Array) {
 }
 
 async function sendRequest(payload: Record<string, unknown>, minTimeoutMs?: number): Promise<any> {
-  const viaBle = bleChar !== null;
+  const viaBle = bleChar !== null || bleNativeActive;
   if (!writer && !viaBle) throw new Error('Not connected');
   initProto();
 

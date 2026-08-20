@@ -134,6 +134,9 @@ function App() {
       });
     });
     setKeyboardLayout(store.osLayout);
+    // Electron only: surface the main process's BLE scan progress in this
+    // debug console (packaged apps have no visible stdout).
+    (window as any).electronAPI?.onBleScanLog?.((msg: string) => debugLog('INF', 'BLE-scan', msg));
   }, []);
 
   // Suspends the runtime-state poll below for the duration of a Write. The

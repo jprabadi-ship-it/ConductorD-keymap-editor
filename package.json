@@ -15,6 +15,7 @@
     "release": "bash scripts/release.sh"
   },
   "dependencies": {
+    "@stoprocent/noble": "^2.7.1",
     "extract-zip": "^2.0.1",
     "protobufjs": "^8.6.5",
     "react": "^19.2.7",
@@ -36,6 +37,10 @@
   },
   "build": {
     "appId": "com.jprabadi.conductor-keymap-editor",
+    "npmRebuild": false,
+    "directories": {
+      "output": "release"
+    },
     "productName": "ConductorD Studio",
     "files": [
       "dist/**/*",
