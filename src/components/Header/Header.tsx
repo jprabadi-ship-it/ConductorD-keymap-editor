@@ -171,6 +171,7 @@ export function Header({ store, showConsole, onToggleConsole, usbConnected, conn
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {[
+                { v: '0.38.42.0', at: '2026-08-20 JST', changes: ['BLE接続時にWriteのキー割り当て書き込みだけが「Not connected」で失敗する問題を修正。writeKeymapToDeviceの接続チェックがUSBシリアルのハンドル(writer)しか見ておらず、BLE接続では常に未接続扱いになっていた(レイヤー名・色・コンボは同チェックがないため成功し、キーだけ落ちる紛らわしい症状)。共通のisConnected()判定に変更'] },
                 { v: '0.38.41.0', at: '2026-08-20 JST', changes: ['BLE接続を使った後にアプリを終了するとプロセスがゾンビ化し、トレイアイコンが無反応になる(終了できない)問題を修正。ネイティブBLEライブラリ(noble)の後始末がNode環境クリーンアップ中にメインスレッドでデッドロックしていたのが原因(sampleコマンドのスタックトレースで特定)。終了時はBLE切断を自前で行い、通常のクリーンアップをバイパスして即終了するように変更(2秒のフェイルセーフ付き)'] },
                 { v: '0.38.40.0', at: '2026-08-20 JST', changes: ['メニューバーのL/Rバッテリー表示が接続後しばらく空のままになる問題を修正。トレイ更新の15秒スロットルが間隔内の更新を捨てていたため、「接続直後の空表示→1秒後に届く実際の値」が破棄され、値が変わるまで表示されなかった。捨てずに保留してスロットル明けに反映するように変更'] },
                 { v: '0.38.39.0', at: '2026-08-20 JST', changes: ['アプリ版のConnect BLEが完全に無反応だった真因を修正: Developer ID署名で有効になるHardened RuntimeがBluetooth用entitlement(com.apple.security.device.bluetooth)なしのCoreBluetoothアクセスをブロックし、Web Bluetoothが即座に「アダプタなし」で失敗していた。entitlementsファイルを追加して解決。あわせてApple Developer Program加入に伴い公証(notarization)を自動化 — 今後のDMGは初回起動時のGatekeeper警告なしで開けます'] },

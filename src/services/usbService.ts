@@ -2675,7 +2675,11 @@ export async function writeCombosToDevice(combos: import('../types').Combo[]): P
 // Returns the raw triples actually sent per position key ("layer:posId"),
 // so the caller can verify they landed on the device (verifyDeviceState).
 export async function writeKeymapToDevice(layers: Layer[], dirtyKeys?: Set<string>): Promise<{ ok: boolean; written: Record<string, { behaviorId: number; param1: number; param2: number }> }> {
-  if (!writer) {
+  // NOTE: check the shared connection state, not `writer` -- that's the USB
+  // serial handle only, and a BLE connection (web or native bridge) leaves
+  // it null. Checking `writer` here silently skipped every key-binding
+  // write over BLE while names/colors/combos (no such check) succeeded.
+  if (!isConnected()) {
     debugLog('ERR', 'USB', 'Not connected');
     return { ok: false, written: {} };
   }
