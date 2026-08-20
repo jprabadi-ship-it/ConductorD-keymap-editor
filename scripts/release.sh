@@ -54,15 +54,22 @@ echo "==> Checking notarization credentials"
 # APPLE_KEYCHAIN_PROFILE. Create the profile once with:
 #   xcrun notarytool store-credentials "conductorD-notary" \
 #     --apple-id <Apple ID> --team-id 3HCG7Y94FX --password <app-specific password>
+# SKIP_NOTARIZE=1 releases a signed-but-unnotarized DMG (first launch shows
+# the Gatekeeper warning) -- for when the notary profile isn't set up yet.
+NOTARIZE_ARGS=()
 export APPLE_KEYCHAIN_PROFILE="${APPLE_KEYCHAIN_PROFILE:-conductorD-notary}"
-if ! security find-generic-password -s "com.apple.gke.notary.tool" >/dev/null 2>&1; then
+if [ "${SKIP_NOTARIZE:-0}" = "1" ]; then
+  echo "WARNING: SKIP_NOTARIZE=1 -- building signed but UNNOTARIZED DMG."
+  NOTARIZE_ARGS=(-- -c.mac.notarize=false)
+elif ! security find-generic-password -s "com.apple.gke.notary.tool" >/dev/null 2>&1; then
   echo "ERROR: no notarytool credentials in the keychain." >&2
   echo "Run: xcrun notarytool store-credentials \"conductorD-notary\" --apple-id <Apple ID> --team-id 3HCG7Y94FX --password <app-specific password>" >&2
+  echo "(or re-run with SKIP_NOTARIZE=1 to release without notarization)" >&2
   exit 1
 fi
 
 echo "==> Building Electron app (signing + notarization -- the notary upload can take a few minutes)"
-npm run electron:build
+npm run electron:build "${NOTARIZE_ARGS[@]:-}"
 
 DMG_SRC="release/ConductorD Studio-${VERSION}-arm64.dmg"
 if [ ! -f "$DMG_SRC" ]; then
