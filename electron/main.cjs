@@ -361,6 +361,7 @@ function createTray() {
 const TRAY_REDRAW_MIN_INTERVAL_MS = 15000
 let lastTrayRedrawAt = 0
 let lastTrayBattery = null // dedupe: skip redraw if r/l unchanged since last update
+let trayRedrawPending = null // update deferred by the throttle window
 
 function updateTrayBatteryIcon(battery) {
   if (!tray) return
@@ -372,7 +373,20 @@ function updateTrayBatteryIcon(battery) {
     return
   }
   const now = Date.now()
-  if (now - lastTrayRedrawAt < TRAY_REDRAW_MIN_INTERVAL_MS) return
+  if (now - lastTrayRedrawAt < TRAY_REDRAW_MIN_INTERVAL_MS) {
+    // Don't drop the update: right after connecting, the first relay carries
+    // no battery yet (draws the empty title) and the real values arrive a
+    // second later -- dropping them left the tray blank until the values
+    // happened to change. Defer to the end of the throttle window instead.
+    clearTimeout(trayRedrawPending)
+    trayRedrawPending = setTimeout(() => {
+      trayRedrawPending = null
+      updateTrayBatteryIcon(battery)
+    }, TRAY_REDRAW_MIN_INTERVAL_MS - (now - lastTrayRedrawAt) + 50)
+    return
+  }
+  clearTimeout(trayRedrawPending)
+  trayRedrawPending = null
   lastTrayRedrawAt = now
   lastTrayBattery = { r, l, disconnected }
 

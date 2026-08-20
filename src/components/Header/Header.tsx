@@ -171,6 +171,7 @@ export function Header({ store, showConsole, onToggleConsole, usbConnected, conn
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {[
+                { v: '0.38.40.0', at: '2026-08-20 JST', changes: ['メニューバーのL/Rバッテリー表示が接続後しばらく空のままになる問題を修正。トレイ更新の15秒スロットルが間隔内の更新を捨てていたため、「接続直後の空表示→1秒後に届く実際の値」が破棄され、値が変わるまで表示されなかった。捨てずに保留してスロットル明けに反映するように変更'] },
                 { v: '0.38.39.0', at: '2026-08-20 JST', changes: ['アプリ版のConnect BLEが完全に無反応だった真因を修正: Developer ID署名で有効になるHardened RuntimeがBluetooth用entitlement(com.apple.security.device.bluetooth)なしのCoreBluetoothアクセスをブロックし、Web Bluetoothが即座に「アダプタなし」で失敗していた。entitlementsファイルを追加して解決。あわせてApple Developer Program加入に伴い公証(notarization)を自動化 — 今後のDMGは初回起動時のGatekeeper警告なしで開けます'] },
                 { v: '0.38.38.0', at: '2026-08-19 JST', changes: ['BLE接続時に大量発生していた「GATT operation already in progress」エラーを修正。Web BluetoothのGATTは同時に1操作しか受け付けないが、エディタは複数RPC(バッテリーポーリング・マクロ連続読み出し等)を並行送信するため書き込みが衝突していた。BLEのフレーム送信をキューで直列化し、2つのフレームのチャンクが混ざってデバイス側のフレーム解析を壊す問題も同時に解消(USB接続には影響なし)'] },
                 { v: '0.38.37.0', at: '2026-08-19 JST', changes: ['アプリ版のConnect BLEが数ミリ秒で無反応キャンセルされる不具合を修正。ElectronのBLEデバイス選択イベントはスキャン中に何度も発火し最初は空リストで来るが、その初回の空リストで即キャンセルしていたため、未接続デバイス(standalone Rの隠しペアリングスロット等)を発見する時間がなかった。スキャンを継続し、15秒間デバイスが見つからない場合のみ諦めるように変更(Web版は元々Chromeのピッカーが出るため影響なし)'] },
