@@ -857,6 +857,25 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
-app.on('before-quit', () => {
+app.on('before-quit', (event) => {
   isQuitting = true
+
+  // If noble was ever loaded, normal quit deadlocks: node's env cleanup
+  // runs NobleMac::~NobleMac -> [BLEManager dealloc] on the main thread,
+  // which hangs forever (observed live via `sample`: the app becomes a
+  // zombie with an unresponsive tray icon). Tear the connection down
+  // ourselves, then hard-exit past the finalizers.
+  if (nobleMod) {
+    event.preventDefault()
+    const p = blePeripheral
+    bleNativeCleanup()
+    const finish = () => app.exit(0)
+    const failsafe = setTimeout(finish, 2000)
+    ;(async () => {
+      try { nobleMod.stopScanning() } catch { /* not scanning */ }
+      try { if (p) await p.disconnectAsync() } catch { /* already gone */ }
+      clearTimeout(failsafe)
+      finish()
+    })()
+  }
 })
