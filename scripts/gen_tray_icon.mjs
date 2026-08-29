@@ -1,16 +1,14 @@
-// Generates the menu-bar tray icon as a macOS *template* image: pure black
-// pixels carrying only an alpha mask. macOS then tints it itself -- dark on
-// light menu bars, light on dark ones -- which is what makes it adapt to the
-// wallpaper automatically. Anything other than alpha (colors, a background
-// plate) is ignored by the template renderer, so the glyph is drawn edge to
-// edge with nothing behind it.
+// Generates the menu-bar tray icon: the app icon's key-cluster artwork, in
+// its own colors, with the rounded background plate dropped so only the
+// keyboard and trackball remain on transparency.
 //
 // Run: node scripts/gen_tray_icon.mjs
-// Writes electron/trayIconTemplate.png and @2x.
+// Writes electron/trayIcon.png and @2x.
 //
-// The canvas is wider than it is tall on purpose: the menu bar fixes icon
-// height at 22pt but lets width run free, so spending the extra width on the
-// keyboard is the only way to make it meaningfully bigger.
+// Geometry mirrors build/icon.svg's inner group (translate(512,512)
+// scale(1.35)), converted to the 1024-unit icon space here; keep the two in
+// sync if the app icon's artwork changes. Not a macOS template image -- those
+// are alpha-only, which would throw away the colors this icon is made of.
 
 import fs from 'node:fs';
 import zlib from 'node:zlib';
@@ -19,65 +17,107 @@ import { fileURLToPath } from 'node:url';
 
 const OUT_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'electron');
 
-const W = 26; // points
-const H = 22; // points -- the menu bar's fixed icon height
+const BODY = { x: 302.75, y: 343.25, w: 418.5, h: 337.5, r: 54 };
+const KEY = { w: 81, h: 81, r: 16.2, cols: [350, 451.25, 552.5], rows: [387.8, 489.05] };
+const ACCENT = { col: 0, row: 1 }; // the orange key, as on the app icon
+const BALL = { cx: 491.75, cy: 707.75, r: 97.2, stroke: 5.4 };
+const HIGHLIGHT = { cx: 459.35, cy: 675.35, r: 27 };
 
-// Keyboard body, drawn nearly to the canvas edges.
-const BOARD = { x: 0.7, y: 0.7, w: 24.6, h: 14.4, r: 2.9 };
-// Keycaps punched out of it: 3 columns x 2 rows, matching the app icon.
-const KEY = { w: 5.7, h: 4.5, r: 1.3, cols: [2.9, 10.15, 17.4], rows: [2.7, 8.6] };
-// Trackball tucked under the body, as on the app icon.
-const BALL = { cx: 13, cy: 18.7, r: 3.3 };
-const BALL_HIGHLIGHT = { cx: 11.75, cy: 17.45, r: 1.05 };
+const COLOR = {
+  bodyTop: [0x7e, 0x84, 0x8d],
+  bodyBottom: [0x58, 0x5c, 0x64],
+  key: [0xff, 0xff, 0xff],
+  accent: [0xf5, 0x94, 0x3d],
+  ball: [0xff, 0xff, 0xff],
+  ballEdge: [0x58, 0x5c, 0x64],
+  highlight: [0xda, 0xde, 0xe4],
+};
 
+// Bounding box of everything drawn, so the glyph can be fitted to the icon
+// without the plate's former padding around it.
+const BBOX = {
+  x0: Math.min(BODY.x, BALL.cx - BALL.r - BALL.stroke),
+  y0: Math.min(BODY.y, BALL.cy - BALL.r - BALL.stroke),
+  x1: Math.max(BODY.x + BODY.w, BALL.cx + BALL.r + BALL.stroke),
+  y1: Math.max(BODY.y + BODY.h, BALL.cy + BALL.r + BALL.stroke),
+};
+
+const CANVAS_H = 22; // the menu bar's fixed icon height, in points
+const CONTENT_H = 21; // fill nearly all of it -- the plate used to eat this space
 const SS = 8; // supersampling factor, for anti-aliased edges
+
+const glyphW = BBOX.x1 - BBOX.x0;
+const glyphH = BBOX.y1 - BBOX.y0;
+const CANVAS_W = Math.ceil((glyphW / glyphH) * CONTENT_H) + 1;
 
 function insideRoundRect(x, y, { x: rx, y: ry, w, h, r }) {
   if (x < rx || x > rx + w || y < ry || y > ry + h) return false;
   const cx = Math.min(Math.max(x, rx + r), rx + w - r);
   const cy = Math.min(Math.max(y, ry + r), ry + h - r);
-  const dx = x - cx;
-  const dy = y - cy;
-  return dx * dx + dy * dy <= r * r;
+  return (x - cx) ** 2 + (y - cy) ** 2 <= r * r;
 }
 
-function insideCircle(x, y, { cx, cy, r }) {
-  const dx = x - cx;
-  const dy = y - cy;
-  return dx * dx + dy * dy <= r * r;
-}
+const insideCircle = (x, y, cx, cy, r) => (x - cx) ** 2 + (y - cy) ** 2 <= r * r;
 
-function covered(x, y) {
-  if (insideRoundRect(x, y, BOARD)) {
-    for (const kx of KEY.cols) {
-      for (const ky of KEY.rows) {
-        if (insideRoundRect(x, y, { x: kx, y: ky, w: KEY.w, h: KEY.h, r: KEY.r })) return false;
-      }
-    }
-    return true;
-  }
-  if (insideCircle(x, y, BALL)) return !insideCircle(x, y, BALL_HIGHLIGHT);
-  return false;
-}
+// Painter's order: body, keycaps, trackball (edge under fill), highlight.
+function sample(x, y) {
+  if (insideCircle(x, y, HIGHLIGHT.cx, HIGHLIGHT.cy, HIGHLIGHT.r)) return COLOR.highlight;
+  if (insideCircle(x, y, BALL.cx, BALL.cy, BALL.r - BALL.stroke)) return COLOR.ball;
+  if (insideCircle(x, y, BALL.cx, BALL.cy, BALL.r + BALL.stroke)) return COLOR.ballEdge;
 
-function renderAlpha(scale) {
-  const pw = W * scale;
-  const ph = H * scale;
-  const alpha = new Uint8Array(pw * ph);
-  for (let py = 0; py < ph; py++) {
-    for (let px = 0; px < pw; px++) {
-      let hits = 0;
-      for (let sy = 0; sy < SS; sy++) {
-        for (let sx = 0; sx < SS; sx++) {
-          const x = (px + (sx + 0.5) / SS) / scale;
-          const y = (py + (sy + 0.5) / SS) / scale;
-          if (covered(x, y)) hits++;
+  if (insideRoundRect(x, y, BODY)) {
+    for (let c = 0; c < KEY.cols.length; c++) {
+      for (let r = 0; r < KEY.rows.length; r++) {
+        const cap = { x: KEY.cols[c], y: KEY.rows[r], w: KEY.w, h: KEY.h, r: KEY.r };
+        if (insideRoundRect(x, y, cap)) {
+          return c === ACCENT.col && r === ACCENT.row ? COLOR.accent : COLOR.key;
         }
       }
-      alpha[py * pw + px] = Math.round((hits / (SS * SS)) * 255);
+    }
+    // Vertical gradient, matching the app icon's "halfLight" fill.
+    const t = (y - BODY.y) / BODY.h;
+    return COLOR.bodyTop.map((v, i) => Math.round(v + (COLOR.bodyBottom[i] - v) * t));
+  }
+  return null;
+}
+
+function render(scale) {
+  const pw = CANVAS_W * scale;
+  const ph = CANVAS_H * scale;
+  const px = new Uint8Array(pw * ph * 4);
+  const unitsPerPoint = glyphH / CONTENT_H;
+  const originX = BBOX.x0 - ((CANVAS_W - glyphW / unitsPerPoint) / 2) * unitsPerPoint;
+  const originY = BBOX.y0 - ((CANVAS_H - CONTENT_H) / 2) * unitsPerPoint;
+
+  for (let y = 0; y < ph; y++) {
+    for (let x = 0; x < pw; x++) {
+      let hits = 0;
+      let r = 0;
+      let g = 0;
+      let b = 0;
+      for (let sy = 0; sy < SS; sy++) {
+        for (let sx = 0; sx < SS; sx++) {
+          const ux = originX + ((x + (sx + 0.5) / SS) / scale) * unitsPerPoint;
+          const uy = originY + ((y + (sy + 0.5) / SS) / scale) * unitsPerPoint;
+          const c = sample(ux, uy);
+          if (c) {
+            hits++;
+            r += c[0];
+            g += c[1];
+            b += c[2];
+          }
+        }
+      }
+      const o = (y * pw + x) * 4;
+      if (hits) {
+        px[o] = Math.round(r / hits);
+        px[o + 1] = Math.round(g / hits);
+        px[o + 2] = Math.round(b / hits);
+        px[o + 3] = Math.round((hits / (SS * SS)) * 255);
+      }
     }
   }
-  return { alpha, pw, ph };
+  return { px, pw, ph };
 }
 
 function crc32(buf) {
@@ -102,17 +142,13 @@ function chunk(type, data) {
 }
 
 function writePng(file, scale) {
-  const { alpha, pw, ph } = renderAlpha(scale);
+  const { px, pw, ph } = render(scale);
   const raw = Buffer.alloc(ph * (pw * 4 + 1));
   let o = 0;
   for (let y = 0; y < ph; y++) {
     raw[o++] = 0; // filter: none
-    for (let x = 0; x < pw; x++) {
-      raw[o++] = 0; // R -- template images only carry alpha
-      raw[o++] = 0; // G
-      raw[o++] = 0; // B
-      raw[o++] = alpha[y * pw + x];
-    }
+    Buffer.from(px.buffer, y * pw * 4, pw * 4).copy(raw, o);
+    o += pw * 4;
   }
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(pw, 0);
@@ -129,5 +165,5 @@ function writePng(file, scale) {
   console.log(`wrote ${file} (${pw}x${ph})`);
 }
 
-writePng(path.join(OUT_DIR, 'trayIconTemplate.png'), 1);
-writePng(path.join(OUT_DIR, 'trayIconTemplate@2x.png'), 2);
+writePng(path.join(OUT_DIR, 'trayIcon.png'), 1);
+writePng(path.join(OUT_DIR, 'trayIcon@2x.png'), 2);

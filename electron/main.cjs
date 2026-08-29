@@ -338,15 +338,12 @@ function buildTrayMenu() {
 }
 
 function createTray() {
-  // Template image: black pixels + alpha only, which macOS tints itself --
-  // dark glyph on a light menu bar, light glyph on a dark one, following
-  // whatever the wallpaper makes the bar look like. It also means no
-  // background plate (the old trayIcon.png carried the app icon's rounded
-  // grey square, which boxed the glyph in and looked wrong in dark menu
-  // bars). Regenerate with: node scripts/gen_tray_icon.mjs
-  const icon = nativeImage.createFromPath(path.join(__dirname, 'trayIconTemplate.png'))
-  icon.setTemplateImage(true)
-  tray = new Tray(icon)
+  // The app icon's key-cluster artwork in its own colors, minus the rounded
+  // background plate, sized to fill the menu bar's 22pt height. Deliberately
+  // NOT a template image: macOS renders those from alpha alone, which would
+  // drop the orange accent key and the rest of the coloring.
+  // Regenerate with: node scripts/gen_tray_icon.mjs
+  tray = new Tray(nativeImage.createFromPath(path.join(__dirname, 'trayIcon.png')))
   tray.setToolTip('ConductorD Studio')
 
   // Both buttons open the menu. Right-click only (the previous behavior)
