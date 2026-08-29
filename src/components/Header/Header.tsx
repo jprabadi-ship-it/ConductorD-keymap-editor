@@ -32,7 +32,37 @@ const isElectron = typeof window !== 'undefined' && !!(window as any).electronAP
 // This URL always resolves to the newest release's DMG regardless; the
 // downloaded app still identifies its version in the DMG volume name,
 // the About panel, and this header.
-const MAC_APP_DOWNLOAD_URL = 'https://github.com/jprabadi-ship-it/conductor-keymap-editor/releases/latest/download/ConductorD-Studio-mac-arm64.dmg';
+const MAC_APP_DOWNLOAD_URL = 'https://github.com/jprabadi-ship-it/ConductorD-keymap-editor/releases/latest/download/ConductorD-Studio-mac-arm64.dmg';
+
+// Every release also carries a date-stamped copy of the same DMG
+// (ConductorD-Studio-<version>-<YYYYMMDD-HHMM>-mac-arm64.dmg), which is the
+// nicer thing to end up with in ~/Downloads -- several builds of the same
+// version stay tellable apart. Its name can't be known ahead of time, so the
+// button asks the releases API for it at click time and falls back to the
+// fixed-name asset above if that lookup fails. The repo is public (it has to
+// be, for GitHub Pages), so this needs no auth.
+const RELEASES_API_URL = 'https://api.github.com/repos/jprabadi-ship-it/ConductorD-keymap-editor/releases/latest';
+const DATED_DMG_RE = /^ConductorD-Studio-.+-\d{8}-\d{4}-mac-arm64\.dmg$/;
+
+async function resolveMacAppDownloadUrl(): Promise<string> {
+  try {
+    const res = await fetch(RELEASES_API_URL);
+    if (!res.ok) return MAC_APP_DOWNLOAD_URL;
+    const release = await res.json();
+    const dated = (release.assets || []).find((a: { name?: string }) => DATED_DMG_RE.test(a.name || ''));
+    return dated?.browser_download_url || MAC_APP_DOWNLOAD_URL;
+  } catch {
+    return MAC_APP_DOWNLOAD_URL;
+  }
+}
+
+// Navigating (rather than window.open) keeps this working in both builds:
+// the browser treats the asset as a download and stays put, while Electron's
+// will-navigate handler sends it to the default browser.
+async function startMacAppDownload(e: React.MouseEvent) {
+  e.preventDefault();
+  window.location.href = await resolveMacAppDownloadUrl();
+}
 // Firmware is a separate repo/artifact from Studio itself, so unlike the Mac
 // app link above this isn't gated on !isElectron -- both builds need it.
 // The "firmware-latest" release is republished in place by conductor-dongle's
@@ -171,6 +201,7 @@ export function Header({ store, showConsole, onToggleConsole, usbConnected, conn
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {[
+                { v: '0.38.47.0', at: '2026-08-29 JST', changes: ['「Macアプリダウンロード」(およびStudioアップデート通知)から取得できるDMGを、日付入りファイル名(ConductorD-Studio-<版>-<YYYYMMDD-HHMM>-mac-arm64.dmg)に変更。ダウンロードフォルダで同じバージョンの複数ビルドを見分けられます。ファイル名は毎回変わるためリリースAPIから実際の名前を取得する方式にし、取得に失敗した場合は従来の固定名DMGにフォールバックします', 'リポジトリ名変更(ConductorD-keymap-editor)に伴い、ダウンロードURLを新しい名前に更新(旧URLもGitHubのリダイレクトで有効)'] },
                 { v: '0.38.46.0', at: '2026-08-29 JST', changes: ['メニューバーアイコンをアプリアイコンと同じ絵柄(グレーのキーボード本体・白いキー・オレンジのアクセントキー・トラックボール)に戻し、外側の角丸フレームと白い背景色だけを取り除きました。メニューバーの22pt full heightまで拡大しています。色を保つためモノクロのテンプレート画像方式は使わないので、明暗の自動反転は行いません'] },
                 { v: '0.38.45.0', at: '2026-08-29 JST', changes: ['リリーススクリプトが公証(notarization)の資格情報を環境変数(APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID)からも受け取れるように。notarytoolのキーチェーンプロファイル登録がGUIセッション外のシェルでは「User interaction is not allowed」で失敗するため、キーチェーンを介さない経路を用意しました(アプリの動作自体に変更はありません)'] },
                 { v: '0.38.44.0', at: '2026-08-21 JST', changes: ['メニューバーアイコンのキーボード部分をさらに拡大。メニューバーは高さ22ptで固定される一方、横幅は自由なため、キャンバスを26×22ptに広げてキーボード本体を24.6×14.4pt(旧18×11.8pt)に拡大しました。背景プレートは引き続きなしで、明暗はOSが壁紙に合わせて自動反転します'] },
@@ -444,13 +475,13 @@ export function Header({ store, showConsole, onToggleConsole, usbConnected, conn
       )}
 
       {!isElectron && (
-        <a className="header-action-btn" href={MAC_APP_DOWNLOAD_URL} style={{ textDecoration: 'none' }}>
+        <a className="header-action-btn" href={MAC_APP_DOWNLOAD_URL} onClick={startMacAppDownload} style={{ textDecoration: 'none' }}>
           <span>⬇</span> Macアプリダウンロード
         </a>
       )}
 
       {isElectron && editorLatestVersion && (
-        <a className="header-action-btn" href={MAC_APP_DOWNLOAD_URL}
+        <a className="header-action-btn" href={MAC_APP_DOWNLOAD_URL} onClick={startMacAppDownload}
           style={{ textDecoration: 'none', borderColor: 'var(--warning)' }}
           title={`Studio v${editorLatestVersion} が公開されています。クリックしてDMGをダウンロードし、開いて上書きインストールしてください`}>
           <span>⬇</span> Studioアップデート (v{editorLatestVersion})
