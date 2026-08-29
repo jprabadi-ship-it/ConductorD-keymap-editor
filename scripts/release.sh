@@ -50,20 +50,35 @@ fi
 
 echo "==> Checking notarization credentials"
 # mac.notarize=true (package.json) makes electron-builder submit the app to
-# Apple's notary service; it reads the keychain profile named by
-# APPLE_KEYCHAIN_PROFILE. Create the profile once with:
-#   xcrun notarytool store-credentials "conductorD-notary" \
-#     --apple-id <Apple ID> --team-id 3HCG7Y94FX --password <app-specific password>
+# Apple's notary service. Two ways to give it credentials:
+#
+#   1. A notarytool keychain profile (preferred, nothing to re-enter later).
+#      Create it once, in a Terminal logged in as THIS macOS user -- run as
+#      another account it fails with "User interaction is not allowed", and a
+#      profile in another user's keychain is invisible here anyway:
+#        xcrun notarytool store-credentials "conductorD-notary" \
+#          --apple-id <Apple ID> --team-id 3HCG7Y94FX --password <app-specific password>
+#
+#   2. Environment variables, for when the keychain is not cooperating:
+#        APPLE_ID=<Apple ID> APPLE_TEAM_ID=3HCG7Y94FX \
+#        APPLE_APP_SPECIFIC_PASSWORD=<app-specific password> npm run release
+#
 # SKIP_NOTARIZE=1 releases a signed-but-unnotarized DMG (first launch shows
-# the Gatekeeper warning) -- for when the notary profile isn't set up yet.
+# the Gatekeeper warning) -- for when neither is set up yet.
 NOTARIZE_ARGS=()
 export APPLE_KEYCHAIN_PROFILE="${APPLE_KEYCHAIN_PROFILE:-conductorD-notary}"
 if [ "${SKIP_NOTARIZE:-0}" = "1" ]; then
   echo "WARNING: SKIP_NOTARIZE=1 -- building signed but UNNOTARIZED DMG."
   NOTARIZE_ARGS=(-- -c.mac.notarize=false)
+elif [ -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" ] && [ -n "${APPLE_ID:-}" ]; then
+  # electron-builder picks these up directly; unset the profile name so it
+  # doesn't try the keychain first and fail there.
+  export APPLE_TEAM_ID="${APPLE_TEAM_ID:-3HCG7Y94FX}"
+  unset APPLE_KEYCHAIN_PROFILE
+  echo "Using APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD from the environment."
 elif ! security find-generic-password -s "com.apple.gke.notary.tool" >/dev/null 2>&1; then
-  echo "ERROR: no notarytool credentials in the keychain." >&2
-  echo "Run: xcrun notarytool store-credentials \"conductorD-notary\" --apple-id <Apple ID> --team-id 3HCG7Y94FX --password <app-specific password>" >&2
+  echo "ERROR: no notarytool credentials in the keychain, and no APPLE_ID/APPLE_APP_SPECIFIC_PASSWORD in the environment." >&2
+  echo "Run (as this macOS user): xcrun notarytool store-credentials \"conductorD-notary\" --apple-id <Apple ID> --team-id 3HCG7Y94FX --password <app-specific password>" >&2
   echo "(or re-run with SKIP_NOTARIZE=1 to release without notarization)" >&2
   exit 1
 fi
