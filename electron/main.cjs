@@ -476,6 +476,41 @@ ipcMain.handle('check-firmware-latest', async () => {
   })
 })
 
+// The firmware release carries a date-stamped zip
+// (ConductorD-firmware-latest-YYYYMMDD-HHMM.zip) next to the fixed-name copy;
+// the dated one is the nicer download to keep. Its name isn't predictable and
+// the firmware repo is private, so the renderer can't look it up over the
+// GitHub API -- it has to come through gh here. Returns null when gh is
+// missing/unauthenticated, and the renderer falls back to the fixed-name URL.
+ipcMain.handle('resolve-firmware-download-url', async () => {
+  const ghCandidates = ['/opt/homebrew/bin/gh', '/usr/local/bin/gh', 'gh']
+  const ghPath = ghCandidates.find((p) => p === 'gh' || fs.existsSync(p))
+  return await new Promise((resolve) => {
+    execFile(
+      ghPath,
+      ['release', 'view', 'firmware-latest', '--repo', 'jprabadi-ship-it/conductor', '--json', 'assets'],
+      { timeout: 10000 },
+      (err, stdout) => {
+        if (err) {
+          resolve(null)
+          return
+        }
+        try {
+          const assets = JSON.parse(stdout).assets || []
+          const dated = assets.find((a) => /^ConductorD-firmware-latest-\d{8}-\d{4}\.zip$/.test(a.name))
+          resolve(
+            dated
+              ? `https://github.com/jprabadi-ship-it/conductor/releases/download/firmware-latest/${dated.name}`
+              : null,
+          )
+        } catch {
+          resolve(null)
+        }
+      },
+    )
+  })
+})
+
 // ===== Native BLE bridge =====
 // Web Bluetooth is broken in Electron on recent macOS (electron/electron
 // #47046: the requestDevice chooser cancels instantly and

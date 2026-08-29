@@ -73,6 +73,19 @@ async function startMacAppDownload(e: React.MouseEvent) {
 // link keeps working -- direct one-click download, no release-page detour.
 const FIRMWARE_DOWNLOAD_URL = 'https://github.com/jprabadi-ship-it/conductor/releases/latest/download/ConductorD-firmware-latest.zip';
 
+// ...and the dated copy is the nicer one to keep, same as for the DMG. Unlike
+// Studio's own repo this one is private, so the browser can't ask the GitHub
+// API for the asset list (the web build's plain link only works at all
+// because the user's browser is signed in to github.com). The Electron build
+// can, via gh in the main process -- so the app gets the dated file and the
+// web build stays on the fixed name.
+async function startFirmwareDownload(e: React.MouseEvent) {
+  const api = (window as { electronAPI?: { resolveFirmwareDownloadUrl?: () => Promise<string | null> } }).electronAPI;
+  if (!api?.resolveFirmwareDownloadUrl) return; // web build: follow the href
+  e.preventDefault();
+  window.location.href = (await api.resolveFirmwareDownloadUrl()) || FIRMWARE_DOWNLOAD_URL;
+}
+
 // True auto-update (silent download+relaunch via electron-updater/Squirrel.Mac)
 // needs a valid code signature, which this app doesn't have (unsigned, no
 // Developer ID cert) -- Squirrel.Mac's own update-apply step requires one, it's
@@ -201,6 +214,7 @@ export function Header({ store, showConsole, onToggleConsole, usbConnected, conn
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {[
+                { v: '0.38.49.0', at: '2026-08-29 JST', changes: ['「FWダウンロード」も日付入りファイル名(ConductorD-firmware-latest-YYYYMMDD-HHMM.zip)で取得するように変更 — ただし**アプリ版のみ**です。FWのリポジトリはプライベートで、ブラウザからは資産一覧のAPIを参照できないため(Web版の直リンクが機能しているのは、ブラウザがGitHubにログイン済みだからです)、アプリ版はmainプロセスのgh CLI経由で日付入り名を解決します。ghが未認証などで解決できない場合は従来の固定名にフォールバックします。Web版は引き続き固定名(ConductorD-firmware-latest.zip)のままです'] },
                 { v: '0.38.48.0', at: '2026-08-29 JST', changes: ['アプリ版の更新チェックが参照するリリースAPIのURLを、旧リポジトリ名(conductor-keymap-editor)から現在の名前(ConductorD-keymap-editor)に修正。GitHubのリダイレクトで動作はしていましたが、ダウンロード側と同じ定数を使うよう統一しました', '注意: 日付入りDMGのダウンロードはv0.38.47以降のビルドでのみ有効です。v0.38.46以前のアプリからアップデートボタンを押した場合は、そのビルドのコードが動くため従来通り固定名(LATEST)のDMGが落ちてきます'] },
                 { v: '0.38.47.0', at: '2026-08-29 JST', changes: ['「Macアプリダウンロード」(およびStudioアップデート通知)から取得できるDMGを、日付入りファイル名(ConductorD-Studio-<版>-<YYYYMMDD-HHMM>-mac-arm64.dmg)に変更。ダウンロードフォルダで同じバージョンの複数ビルドを見分けられます。ファイル名は毎回変わるためリリースAPIから実際の名前を取得する方式にし、取得に失敗した場合は従来の固定名DMGにフォールバックします', 'リポジトリ名変更(ConductorD-keymap-editor)に伴い、ダウンロードURLを新しい名前に更新(旧URLもGitHubのリダイレクトで有効)'] },
                 { v: '0.38.46.0', at: '2026-08-29 JST', changes: ['メニューバーアイコンをアプリアイコンと同じ絵柄(グレーのキーボード本体・白いキー・オレンジのアクセントキー・トラックボール)に戻し、外側の角丸フレームと白い背景色だけを取り除きました。メニューバーの22pt full heightまで拡大しています。色を保つためモノクロのテンプレート画像方式は使わないので、明暗の自動反転は行いません'] },
@@ -489,7 +503,7 @@ export function Header({ store, showConsole, onToggleConsole, usbConnected, conn
         </a>
       )}
 
-      <a className="header-action-btn" href={FIRMWARE_DOWNLOAD_URL}
+      <a className="header-action-btn" href={FIRMWARE_DOWNLOAD_URL} onClick={startFirmwareDownload}
         style={{ textDecoration: 'none', position: 'relative', ...(fwUpdateAvailable ? { borderColor: 'var(--warning)' } : {}) }}
         title={fwUpdateAvailable
           ? '接続中のデバイスより新しいFWが公開されています。zipをダウンロードして書き込んでください'
