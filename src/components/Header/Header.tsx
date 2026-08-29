@@ -101,7 +101,7 @@ export function Header({ store, showConsole, onToggleConsole, usbConnected, conn
 
   useEffect(() => {
     if (!isElectron) return;
-    fetch('https://api.github.com/repos/jprabadi-ship-it/conductor-keymap-editor/releases/latest')
+    fetch(RELEASES_API_URL)
       .then((r) => r.json())
       .then((data) => {
         const tag = typeof data?.tag_name === 'string' ? data.tag_name.replace(/^v/, '') : null;
@@ -201,6 +201,7 @@ export function Header({ store, showConsole, onToggleConsole, usbConnected, conn
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {[
+                { v: '0.38.48.0', at: '2026-08-29 JST', changes: ['アプリ版の更新チェックが参照するリリースAPIのURLを、旧リポジトリ名(conductor-keymap-editor)から現在の名前(ConductorD-keymap-editor)に修正。GitHubのリダイレクトで動作はしていましたが、ダウンロード側と同じ定数を使うよう統一しました', '注意: 日付入りDMGのダウンロードはv0.38.47以降のビルドでのみ有効です。v0.38.46以前のアプリからアップデートボタンを押した場合は、そのビルドのコードが動くため従来通り固定名(LATEST)のDMGが落ちてきます'] },
                 { v: '0.38.47.0', at: '2026-08-29 JST', changes: ['「Macアプリダウンロード」(およびStudioアップデート通知)から取得できるDMGを、日付入りファイル名(ConductorD-Studio-<版>-<YYYYMMDD-HHMM>-mac-arm64.dmg)に変更。ダウンロードフォルダで同じバージョンの複数ビルドを見分けられます。ファイル名は毎回変わるためリリースAPIから実際の名前を取得する方式にし、取得に失敗した場合は従来の固定名DMGにフォールバックします', 'リポジトリ名変更(ConductorD-keymap-editor)に伴い、ダウンロードURLを新しい名前に更新(旧URLもGitHubのリダイレクトで有効)'] },
                 { v: '0.38.46.0', at: '2026-08-29 JST', changes: ['メニューバーアイコンをアプリアイコンと同じ絵柄(グレーのキーボード本体・白いキー・オレンジのアクセントキー・トラックボール)に戻し、外側の角丸フレームと白い背景色だけを取り除きました。メニューバーの22pt full heightまで拡大しています。色を保つためモノクロのテンプレート画像方式は使わないので、明暗の自動反転は行いません'] },
                 { v: '0.38.45.0', at: '2026-08-29 JST', changes: ['リリーススクリプトが公証(notarization)の資格情報を環境変数(APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID)からも受け取れるように。notarytoolのキーチェーンプロファイル登録がGUIセッション外のシェルでは「User interaction is not allowed」で失敗するため、キーチェーンを介さない経路を用意しました(アプリの動作自体に変更はありません)'] },
