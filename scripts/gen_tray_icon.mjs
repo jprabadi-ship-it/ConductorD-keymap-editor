@@ -3,10 +3,14 @@
 // light menu bars, light on dark ones -- which is what makes it adapt to the
 // wallpaper automatically. Anything other than alpha (colors, a background
 // plate) is ignored by the template renderer, so the glyph is drawn edge to
-// edge with no plate behind it.
+// edge with nothing behind it.
 //
 // Run: node scripts/gen_tray_icon.mjs
-// Writes electron/trayIconTemplate.png (22pt) and @2x (44px).
+// Writes electron/trayIconTemplate.png and @2x.
+//
+// The canvas is wider than it is tall on purpose: the menu bar fixes icon
+// height at 22pt but lets width run free, so spending the extra width on the
+// keyboard is the only way to make it meaningfully bigger.
 
 import fs from 'node:fs';
 import zlib from 'node:zlib';
@@ -15,13 +19,16 @@ import { fileURLToPath } from 'node:url';
 
 const OUT_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'electron');
 
-// Glyph geometry in a 22x22 coordinate space (macOS menu bar icons are 22pt
-// tall). Drawn nearly edge to edge: the old icon wasted most of its box on a
-// rounded background plate, which made the keyboard itself look tiny.
-const BOARD = { x: 2, y: 2.4, w: 18, h: 11.8, r: 2.6 };
-const KEY = { w: 3.6, h: 3.3, r: 0.9, cols: [4.4, 9.2, 14.0], rows: [4.7, 9.5] };
-const BALL = { cx: 11, cy: 18.4, r: 3.3 };
-const BALL_HIGHLIGHT = { cx: 9.7, cy: 17.1, r: 1.05 };
+const W = 26; // points
+const H = 22; // points -- the menu bar's fixed icon height
+
+// Keyboard body, drawn nearly to the canvas edges.
+const BOARD = { x: 0.7, y: 0.7, w: 24.6, h: 14.4, r: 2.9 };
+// Keycaps punched out of it: 3 columns x 2 rows, matching the app icon.
+const KEY = { w: 5.7, h: 4.5, r: 1.3, cols: [2.9, 10.15, 17.4], rows: [2.7, 8.6] };
+// Trackball tucked under the body, as on the app icon.
+const BALL = { cx: 13, cy: 18.7, r: 3.3 };
+const BALL_HIGHLIGHT = { cx: 11.75, cy: 17.45, r: 1.05 };
 
 const SS = 8; // supersampling factor, for anti-aliased edges
 
@@ -40,8 +47,6 @@ function insideCircle(x, y, { cx, cy, r }) {
   return dx * dx + dy * dy <= r * r;
 }
 
-// Solid keyboard body with the keycaps punched out, plus a trackball below
-// with a punched-out highlight -- mirrors the app icon's silhouette.
 function covered(x, y) {
   if (insideRoundRect(x, y, BOARD)) {
     for (const kx of KEY.cols) {
@@ -55,11 +60,12 @@ function covered(x, y) {
   return false;
 }
 
-function renderAlpha(size) {
-  const scale = size / 22;
-  const alpha = new Uint8Array(size * size);
-  for (let py = 0; py < size; py++) {
-    for (let px = 0; px < size; px++) {
+function renderAlpha(scale) {
+  const pw = W * scale;
+  const ph = H * scale;
+  const alpha = new Uint8Array(pw * ph);
+  for (let py = 0; py < ph; py++) {
+    for (let px = 0; px < pw; px++) {
       let hits = 0;
       for (let sy = 0; sy < SS; sy++) {
         for (let sx = 0; sx < SS; sx++) {
@@ -68,17 +74,16 @@ function renderAlpha(size) {
           if (covered(x, y)) hits++;
         }
       }
-      alpha[py * size + px] = Math.round((hits / (SS * SS)) * 255);
+      alpha[py * pw + px] = Math.round((hits / (SS * SS)) * 255);
     }
   }
-  return alpha;
+  return { alpha, pw, ph };
 }
 
 function crc32(buf) {
-  let c;
   const table = [];
   for (let n = 0; n < 256; n++) {
-    c = n;
+    let c = n;
     for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
     table[n] = c >>> 0;
   }
@@ -96,21 +101,22 @@ function chunk(type, data) {
   return Buffer.concat([len, body, crc]);
 }
 
-function writePng(file, size, alpha) {
-  const raw = Buffer.alloc(size * (size * 4 + 1));
+function writePng(file, scale) {
+  const { alpha, pw, ph } = renderAlpha(scale);
+  const raw = Buffer.alloc(ph * (pw * 4 + 1));
   let o = 0;
-  for (let y = 0; y < size; y++) {
+  for (let y = 0; y < ph; y++) {
     raw[o++] = 0; // filter: none
-    for (let x = 0; x < size; x++) {
+    for (let x = 0; x < pw; x++) {
       raw[o++] = 0; // R -- template images only carry alpha
       raw[o++] = 0; // G
       raw[o++] = 0; // B
-      raw[o++] = alpha[y * size + x];
+      raw[o++] = alpha[y * pw + x];
     }
   }
   const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(size, 0);
-  ihdr.writeUInt32BE(size, 4);
+  ihdr.writeUInt32BE(pw, 0);
+  ihdr.writeUInt32BE(ph, 4);
   ihdr[8] = 8; // bit depth
   ihdr[9] = 6; // color type: RGBA
   const png = Buffer.concat([
@@ -120,8 +126,8 @@ function writePng(file, size, alpha) {
     chunk('IEND', Buffer.alloc(0)),
   ]);
   fs.writeFileSync(file, png);
-  console.log(`wrote ${file} (${size}x${size}, ${png.length} bytes)`);
+  console.log(`wrote ${file} (${pw}x${ph})`);
 }
 
-writePng(path.join(OUT_DIR, 'trayIconTemplate.png'), 22, renderAlpha(22));
-writePng(path.join(OUT_DIR, 'trayIconTemplate@2x.png'), 44, renderAlpha(44));
+writePng(path.join(OUT_DIR, 'trayIconTemplate.png'), 1);
+writePng(path.join(OUT_DIR, 'trayIconTemplate@2x.png'), 2);
