@@ -84,7 +84,11 @@ elif ! security find-generic-password -s "com.apple.gke.notary.tool" >/dev/null 
 fi
 
 echo "==> Building Electron app (signing + notarization -- the notary upload can take a few minutes)"
-npm run electron:build "${NOTARIZE_ARGS[@]:-}"
+# "${arr[@]:-}" would hand electron-builder a stray empty argument when the
+# array is empty (it rejects it: `Unknown argument: ""`). This idiom expands
+# to nothing at all when empty, while still being safe under `set -u` on the
+# bash 3.2 that macOS ships.
+npm run electron:build ${NOTARIZE_ARGS[@]+"${NOTARIZE_ARGS[@]}"}
 
 DMG_SRC="release/ConductorD Studio-${VERSION}-arm64.dmg"
 if [ ! -f "$DMG_SRC" ]; then
