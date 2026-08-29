@@ -338,13 +338,23 @@ function buildTrayMenu() {
 }
 
 function createTray() {
-  const iconPath = path.join(__dirname, 'trayIcon.png')
-  tray = new Tray(nativeImage.createFromPath(iconPath))
+  // Template image: black pixels + alpha only, which macOS tints itself --
+  // dark glyph on a light menu bar, light glyph on a dark one, following
+  // whatever the wallpaper makes the bar look like. It also means no
+  // background plate (the old trayIcon.png carried the app icon's rounded
+  // grey square, which boxed the glyph in and looked wrong in dark menu
+  // bars). Regenerate with: node scripts/gen_tray_icon.mjs
+  const icon = nativeImage.createFromPath(path.join(__dirname, 'trayIconTemplate.png'))
+  icon.setTemplateImage(true)
+  tray = new Tray(icon)
   tray.setToolTip('ConductorD Studio')
 
-  // Left-click does nothing -- everything lives behind right-click now.
-  // Rebuild the menu each time so the checkbox reflects current visibility.
-  tray.on('right-click', () => tray.popUpContextMenu(buildTrayMenu()))
+  // Both buttons open the menu. Right-click only (the previous behavior)
+  // read as "the icon is dead" whenever the click happened to be a normal
+  // left click. Rebuild the menu each time so checkboxes reflect current state.
+  const openMenu = () => tray.popUpContextMenu(buildTrayMenu())
+  tray.on('click', openMenu)
+  tray.on('right-click', openMenu)
 }
 
 // Shows "L.. R.." battery levels next to the tray icon via Tray.setTitle(),
@@ -742,6 +752,21 @@ ipcMain.on('adjust-popup-opacity', (_event, delta) => {
 // lists a phantom "Bluetooth-Incoming-Port" cu device alongside real USB
 // serial ports — ask the user, the same way a real browser's native picker
 // would, instead of guessing and silently connecting to the wrong port.
+// Shared chooser for the serial/bluetooth device pickers. Deliberately async
+// (never showMessageBoxSync, which freezes the whole main process -- tray
+// included -- for as long as the dialog is up), and it only attaches a sheet
+// to a window the user can actually see: a sheet on a hidden window is a
+// dialog nobody can answer.
+function pickFromDialog(webContents, opts, cancelIndex) {
+  const requester = webContents ? BrowserWindow.fromWebContents(webContents) : null
+  const visible = [requester, win, popupWin].find((w) => w && !w.isDestroyed() && w.isVisible())
+  const promise = visible ? dialog.showMessageBox(visible, opts) : dialog.showMessageBox(opts)
+  return promise.then((r) => r.response).catch((e) => {
+    console.error('device picker failed:', e)
+    return cancelIndex
+  })
+}
+
 function wireSerialPermissions(ses) {
   ses.on('select-serial-port', (event, portList, webContents, callback) => {
     event.preventDefault()
@@ -752,10 +777,6 @@ function wireSerialPermissions(ses) {
     }
 
     const labels = portList.map((p, i) => p.displayName || p.portName || `Port ${i + 1}`)
-    // Parent the dialog to the window that asked (minimap or Studio) so it
-    // shows as a sheet on that window's display — unparented, macOS may put
-    // it on whichever display was last active.
-    const parent = BrowserWindow.fromWebContents(webContents) || popupWin || win
     const opts = {
       type: 'question',
       title: 'Select a serial port',
@@ -763,9 +784,13 @@ function wireSerialPermissions(ses) {
       buttons: [...labels, 'Cancel'],
       cancelId: labels.length,
     }
-    const result = parent ? dialog.showMessageBoxSync(parent, opts) : dialog.showMessageBoxSync(opts)
-
-    callback(result < labels.length ? portList[result].portId : '')
+    // Async, and only ever parented to a *visible* window: showMessageBoxSync
+    // blocks the entire main process, and as a sheet on a hidden window it is
+    // invisible while doing so -- the whole app, tray included, stops
+    // responding with nothing on screen to dismiss.
+    pickFromDialog(webContents, opts, labels.length).then((result) => {
+      callback(result < labels.length ? portList[result].portId : '')
+    })
   })
 
   ses.setDevicePermissionHandler((details) =>
@@ -810,9 +835,6 @@ function wireBluetoothPermissions(ses) {
     }
 
     const labels = deviceList.map((d, i) => d.deviceName || `Device ${i + 1}`)
-    // Same display-pinning as the serial picker: parent to a live window
-    // (this event carries no webContents, so prefer the visible one).
-    const parent = (popupWin && popupWin.isVisible() && popupWin) || (win && win.isVisible() && win) || popupWin || win
     const opts = {
       type: 'question',
       title: 'Select a Bluetooth device',
@@ -820,9 +842,10 @@ function wireBluetoothPermissions(ses) {
       buttons: [...labels, 'Cancel'],
       cancelId: labels.length,
     }
-    const result = parent ? dialog.showMessageBoxSync(parent, opts) : dialog.showMessageBoxSync(opts)
-
-    callback(result < labels.length ? deviceList[result].deviceId : '')
+    // Async + visible-parent-only, same reasoning as the serial picker.
+    pickFromDialog(null, opts, labels.length).then((result) => {
+      callback(result < labels.length ? deviceList[result].deviceId : '')
+    })
   })
 
   ses.setBluetoothPairingHandler((details, callback) => {
