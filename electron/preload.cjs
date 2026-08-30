@@ -55,6 +55,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // renderer's navigator.bluetooth path, which Electron currently breaks on
   // recent macOS (electron#47046).
   bleNativeConnect: () => ipcRenderer.invoke('ble-native-connect'),
+  bleNativeStatus: () => ipcRenderer.invoke('ble-native-status'),
+  rpcClientId: () => ipcRenderer.invoke('rpc-client-id'),
   bleNativeWrite: (bytes) => ipcRenderer.invoke('ble-native-write', bytes),
   bleNativeDisconnect: () => ipcRenderer.invoke('ble-native-disconnect'),
   onBleNativeData: (callback) => {

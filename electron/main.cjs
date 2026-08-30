@@ -625,6 +625,22 @@ async function bleNativeConnectOnce() {
   }
 }
 
+// The native BLE link lives here, not in a window, so any window can use the
+// one that's already open -- that's what lets the Studio window pick up a
+// connection the minimap made instead of showing "disconnected" over a live
+// device.
+ipcMain.handle('ble-native-status', () => ({
+  connected: !!bleRpcChar,
+  name: blePeripheral?.advertisement?.localName || null,
+}))
+
+// Windows sharing that link must not hand out colliding RPC request ids:
+// every reply is broadcast to all of them, so identical ids would let one
+// window resolve its pending request with the other's answer. Each window
+// gets its own id range instead (see requestIdBase in usbService).
+let rpcClientSeq = 0
+ipcMain.handle('rpc-client-id', () => ++rpcClientSeq)
+
 ipcMain.handle('ble-native-write', async (_event, bytes) => {
   if (!bleRpcChar) throw new Error('BLE not connected')
   // write-with-response, mirroring the web path's writeValueWithResponse

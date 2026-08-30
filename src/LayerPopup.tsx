@@ -4,7 +4,7 @@ import { LEFT_KEYS, RIGHT_KEYS, KeyPosition, positionToKeyId, positionsToKeyIds 
 import { Layer, Combo, KeyBinding } from './types';
 import {
   connectUsb, connectBle, disconnectUsb, disconnectBle, requestUnlock, readKeymap, getCombosFromDevice, getAutoLayer, getRuntimeState,
-  onDeviceDisconnect, onDeviceReconnect, onActiveLayerChange, onKeyInputEvent, subscribeToInput,
+  adoptExistingBleConnection, onDeviceDisconnect, onDeviceReconnect, onActiveLayerChange, onKeyInputEvent, subscribeToInput,
 } from './services/usbService';
 
 interface LayerState {
@@ -243,11 +243,9 @@ export function LayerPopup() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleConnect = async (type: 'usb' | 'bluetooth', options?: { silent?: boolean }) => {
-    setConnecting(type);
-    try {
-      const ok = type === 'usb' ? await connectUsb(options) : await connectBle();
-      if (!ok) return;
+  // Everything after the link is up -- shared by connecting ourselves and by
+  // adopting a connection another window already opened.
+  const loadConnectedState = async (type: 'usb' | 'bluetooth') => {
       await requestUnlock();
       await subscribeToInput(true);
 
@@ -274,6 +272,14 @@ export function LayerPopup() {
         battery: runtime ? { l: runtime.peripheralL, r: runtime.peripheralR } : null,
       });
       setConnType(type);
+  };
+
+  const handleConnect = async (type: 'usb' | 'bluetooth', options?: { silent?: boolean }) => {
+    setConnecting(type);
+    try {
+      const ok = type === 'usb' ? await connectUsb(options) : await connectBle();
+      if (!ok) return;
+      await loadConnectedState(type);
     } finally {
       setConnecting(null);
     }
@@ -282,6 +288,17 @@ export function LayerPopup() {
   // handleConnect (which closes over fresh state setters each render).
   const handleConnectRef = useRef(handleConnect);
   useEffect(() => { handleConnectRef.current = handleConnect; });
+
+  // One native BLE link lives in the main process, so if the Studio window
+  // already opened it, join that instead of sitting here showing
+  // "disconnected" over a live device.
+  const loadConnectedStateRef = useRef(loadConnectedState);
+  useEffect(() => { loadConnectedStateRef.current = loadConnectedState; });
+  useEffect(() => {
+    adoptExistingBleConnection().then(adopted => {
+      if (adopted) loadConnectedStateRef.current('bluetooth');
+    });
+  }, []);
 
   // A connection made directly from the popup takes priority over whatever
   // the main editor window last reported over IPC -- it's live and local to

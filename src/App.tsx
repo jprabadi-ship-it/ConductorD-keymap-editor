@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useKeymapStore } from './store/useKeymapStore';
-import { readKeymap, writeKeymapToDevice, saveChanges, setLayerProps, getDeviceInfo, getFirmwareInfo, requestUnlock, isUnlocked, getUnlockFailure, unlockFailureMessage, readMacrosFromDevice, onDeviceDisconnect, onDeviceReconnect, onActiveLayerChange, onKeyInputEvent, subscribeToInput, getRuntimeState, setKeyboardLayout, getBehaviorDisplayName, getCombosFromDevice, writeCombosToDevice, verifyDeviceState } from './services/usbService';
+import { readKeymap, writeKeymapToDevice, saveChanges, setLayerProps, getDeviceInfo, getFirmwareInfo, requestUnlock, isUnlocked, getUnlockFailure, unlockFailureMessage, readMacrosFromDevice, adoptExistingBleConnection, onDeviceDisconnect, onDeviceReconnect, onActiveLayerChange, onKeyInputEvent, subscribeToInput, getRuntimeState, setKeyboardLayout, getBehaviorDisplayName, getCombosFromDevice, writeCombosToDevice, verifyDeviceState } from './services/usbService';
 import { saveWriteBackup } from './services/writeBackups';
 import type { KeymapProject } from './types';
 import { isFirmwareVersionSupported, checkFirmwareUpdate, analyzeFirmwareConsistency, MIN_SUPPORTED_FW_VERSION } from './services/firmwareCompat';
@@ -146,6 +146,17 @@ function App() {
     // Electron only: surface the main process's BLE scan progress in this
     // debug console (packaged apps have no visible stdout).
     (window as any).electronAPI?.onBleScanLog?.((msg: string) => debugLog('INF', 'BLE-scan', msg));
+    // If the minimap already has the device on BLE, take that connection over
+    // rather than opening this window on "Disconnected" -- the link lives in
+    // the main process and is shared, so there is nothing to reconnect.
+    adoptExistingBleConnection().then(adopted => {
+      if (adopted) {
+        setUsbConnected(true);
+        setConnType('bluetooth');
+        subscribeToInput(true);
+        showToast('接続済みのBLE接続を引き継ぎました', 'device');
+      }
+    });
   }, []);
 
   // Suspends the runtime-state poll below for the duration of a Write. The

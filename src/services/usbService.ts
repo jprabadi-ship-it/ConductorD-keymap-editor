@@ -15,6 +15,14 @@ let port: any = null;
 let reader: any = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let writer: any = null;
+// Request ids are namespaced per window. The Studio window and the minimap
+// can share one native BLE link, and every reply from it is broadcast to both
+// -- with both counting from 1, one window would happily resolve its pending
+// request with the other window's answer. Each gets a disjoint range instead,
+// handed out by the main process; replies outside our range are the other
+// window's business and are ignored quietly.
+const REQUEST_ID_SPAN = 0x10000000;
+let requestIdBase = 0;
 let requestId = 0;
 let onDisconnectCallback: (() => void) | null = null;
 let onActiveLayerCallback: ((highestLayer: number) => void) | null = null;
@@ -197,6 +205,42 @@ function wireBleNativeListeners(api: any) {
   });
 }
 
+// Claim this window's slice of the request-id space (Electron only; a browser
+// tab is the sole client and can keep counting from 1).
+async function claimRequestIdSpace() {
+  if (requestIdBase > 0) return;
+  const api = (window as { electronAPI?: { rpcClientId?: () => Promise<number> } }).electronAPI;
+  if (!api?.rpcClientId) return;
+  try {
+    const clientId = await api.rpcClientId();
+    requestIdBase = clientId * REQUEST_ID_SPAN;
+    requestId = requestIdBase;
+  } catch { /* stay on the default range */ }
+}
+
+/**
+ * Attach to a native BLE connection another window already opened, instead of
+ * reconnecting (or worse, showing "disconnected" over a live device). The link
+ * itself lives in the main process, so this is just bookkeeping on our side.
+ */
+export async function adoptExistingBleConnection(): Promise<boolean> {
+  const api = (window as any).electronAPI;
+  if (!api?.bleNativeStatus || isConnected()) return false;
+  try {
+    const status = await api.bleNativeStatus();
+    if (!status?.connected) return false;
+    await claimRequestIdSpace();
+    wireBleNativeListeners(api);
+    bleNativeActive = true;
+    initProto();
+    debugLog('INF', 'BLE', `Adopted the BLE connection already open in another window (${status.name || 'conductor'})`);
+    return true;
+  } catch (e: any) {
+    debugLog('WRN', 'BLE', `Could not adopt the existing BLE connection: ${e.message}`);
+    return false;
+  }
+}
+
 let bleConnectInFlight: Promise<boolean> | null = null;
 
 export async function connectBle(): Promise<boolean> {
@@ -211,6 +255,7 @@ async function connectBleOnce(): Promise<boolean> {
   const nativeApi = (window as any).electronAPI;
   if (nativeApi?.bleNativeConnect) {
     debugLog('INF', 'BLE', 'Connecting via native BLE bridge (Electron)...');
+    await claimRequestIdSpace();
     wireBleNativeListeners(nativeApi);
     const res = await nativeApi.bleNativeConnect();
     if (!res?.ok) {
@@ -448,7 +493,10 @@ function handleFrame(data: Uint8Array) {
 
     const pending = pendingRequests.get(rr.requestId);
     if (!pending) {
-      debugLog('WRN', 'USB', `Unexpected response id: ${rr.requestId}`);
+      // Another window's reply on the shared BLE link -- not our problem.
+      const foreign = requestIdBase > 0
+        && (rr.requestId <= requestIdBase || rr.requestId > requestIdBase + REQUEST_ID_SPAN);
+      if (!foreign) debugLog('WRN', 'USB', `Unexpected response id: ${rr.requestId}`);
       return;
     }
 
