@@ -42,6 +42,47 @@ export function onDeviceDisconnect(cb: () => void) {
   onDisconnectCallback = cb;
 }
 
+// ===== Automatic reconnection =====
+// Losing the port is routine here -- flashing firmware, a reset, or an
+// accidental tug all make the device vanish and come back a second later.
+// Web Serial fires a 'connect' event when a port the user already granted
+// reappears, and reopening it needs no fresh user gesture, so the session can
+// resume itself. Only ever after an *unexpected* loss: an explicit Disconnect
+// means the user wants it closed, and silently reopening would fight them.
+let lastUsbPort: any = null;
+let userDisconnected = false;
+let autoReconnectWired = false;
+let onReconnectCallback: (() => void) | null = null;
+
+export function onDeviceReconnect(cb: () => void) {
+  onReconnectCallback = cb;
+  wireAutoReconnect();
+}
+
+function wireAutoReconnect() {
+  if (autoReconnectWired || !('serial' in navigator)) return;
+  autoReconnectWired = true;
+  (navigator as any).serial.addEventListener('connect', async (event: any) => {
+    const returned = event?.port ?? event?.target;
+    if (userDisconnected || isConnected()) return;
+    // Ignore other devices coming back; only resume the one we were on.
+    if (lastUsbPort && returned && returned !== lastUsbPort) return;
+
+    debugLog('INF', 'USB', 'Device reappeared -- reconnecting...');
+    // The port can need a moment after enumeration before it accepts open().
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      if (userDisconnected || isConnected()) return;
+      await new Promise((r) => setTimeout(r, attempt === 1 ? 300 : 700));
+      if (await connectUsb({ silent: true })) {
+        debugLog('INF', 'USB', `Reconnected automatically (attempt ${attempt})`);
+        onReconnectCallback?.();
+        return;
+      }
+    }
+    debugLog('WRN', 'USB', 'Automatic reconnect gave up -- press Connect USB.');
+  });
+}
+
 // Fires on the unsolicited layerChanged/runtimeStateChanged push notification
 // the firmware sends when the active layer changes (zmk.core.Notification).
 export function onActiveLayerChange(cb: (highestLayer: number) => void) {
@@ -314,7 +355,9 @@ export async function connectUsb(options?: { silent?: boolean }): Promise<boolea
         debugLog('WRN', 'USB', 'Silent connect: no previously granted serial port');
         return false;
       }
-      port = granted[0];
+      // Prefer the port this session was already on -- with several granted
+      // ports (the debug firmware grants two), granted[0] may be the wrong one.
+      port = (lastUsbPort && granted.includes(lastUsbPort)) ? lastUsbPort : granted[0];
     } else {
       debugLog('INF', 'USB', 'Requesting serial port...');
       port = await (navigator as any).serial.requestPort({});
@@ -326,6 +369,10 @@ export async function connectUsb(options?: { silent?: boolean }): Promise<boolea
       writer = port!.writable.getWriter();
       startReading();
       initProto();
+      // Remember what to reopen, and that this session wants to be connected.
+      lastUsbPort = port;
+      userDisconnected = false;
+      wireAutoReconnect();
       debugLog('INF', 'USB', `Serial port opened (baud: ${BAUD_RATE})`);
       return true;
     }
@@ -367,6 +414,8 @@ export function isConnected(): boolean {
 }
 
 export async function disconnectUsb(): Promise<void> {
+  // Deliberate close: stay closed even if the device reappears.
+  userDisconnected = true;
   try {
     if (reader) { await reader.cancel().catch(() => {}); reader.releaseLock(); reader = null; }
     if (writer) { await writer.close().catch(() => {}); writer.releaseLock(); writer = null; }

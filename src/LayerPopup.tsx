@@ -4,7 +4,7 @@ import { LEFT_KEYS, RIGHT_KEYS, KeyPosition, positionToKeyId, positionsToKeyIds 
 import { Layer, Combo, KeyBinding } from './types';
 import {
   connectUsb, connectBle, disconnectUsb, disconnectBle, requestUnlock, readKeymap, getCombosFromDevice, getAutoLayer, getRuntimeState,
-  onDeviceDisconnect, onActiveLayerChange, onKeyInputEvent, subscribeToInput,
+  onDeviceDisconnect, onDeviceReconnect, onActiveLayerChange, onKeyInputEvent, subscribeToInput,
 } from './services/usbService';
 
 interface LayerState {
@@ -140,6 +140,14 @@ export function LayerPopup() {
     onDeviceDisconnect(() => {
       setLocalConn(c => ({ ...c, connected: false, pressedPositions: [] }));
       setConnType(null);
+    });
+    // usbService reopens the port by itself once the device returns from an
+    // unexpected loss; without this the minimap would keep showing
+    // "disconnected" over a connection that is actually live again.
+    onDeviceReconnect(() => {
+      setLocalConn(c => ({ ...c, connected: true }));
+      setConnType('usb');
+      subscribeToInput(true);
     });
     onActiveLayerChange(highestLayer => {
       setLocalConn(c => ({ ...c, highestLayer }));

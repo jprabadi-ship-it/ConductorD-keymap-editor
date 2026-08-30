@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useKeymapStore } from './store/useKeymapStore';
-import { readKeymap, writeKeymapToDevice, saveChanges, setLayerProps, getDeviceInfo, getFirmwareInfo, requestUnlock, isUnlocked, getUnlockFailure, unlockFailureMessage, readMacrosFromDevice, onDeviceDisconnect, onActiveLayerChange, onKeyInputEvent, subscribeToInput, getRuntimeState, setKeyboardLayout, getBehaviorDisplayName, getCombosFromDevice, writeCombosToDevice, verifyDeviceState } from './services/usbService';
+import { readKeymap, writeKeymapToDevice, saveChanges, setLayerProps, getDeviceInfo, getFirmwareInfo, requestUnlock, isUnlocked, getUnlockFailure, unlockFailureMessage, readMacrosFromDevice, onDeviceDisconnect, onDeviceReconnect, onActiveLayerChange, onKeyInputEvent, subscribeToInput, getRuntimeState, setKeyboardLayout, getBehaviorDisplayName, getCombosFromDevice, writeCombosToDevice, verifyDeviceState } from './services/usbService';
 import { saveWriteBackup } from './services/writeBackups';
 import type { KeymapProject } from './types';
 import { isFirmwareVersionSupported, checkFirmwareUpdate, analyzeFirmwareConsistency, MIN_SUPPORTED_FW_VERSION } from './services/firmwareCompat';
@@ -126,6 +126,15 @@ function App() {
 
   useEffect(() => {
     onDeviceDisconnect(() => { setUsbConnected(false); setConnType(null); setPressedPositions([]); });
+    // The service reopens the port itself when the device comes back from an
+    // unexpected loss (a reflash, a reset, a tugged cable); this just brings
+    // the UI back in step with it.
+    onDeviceReconnect(() => {
+      setUsbConnected(true);
+      setConnType('usb');
+      showToast('デバイスが復帰したので再接続しました', 'device');
+      subscribeToInput(true);
+    });
     onActiveLayerChange(setHighestLayer);
     onKeyInputEvent((position, pressed) => {
       setPressedPositions(prev => {
