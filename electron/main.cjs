@@ -799,6 +799,51 @@ function pickFromDialog(webContents, opts, cancelIndex) {
   })
 }
 
+// Label the port list so the right entry is obvious, and put it first.
+//
+// The debug firmware exposes two CDC ports -- the Studio RPC one and a
+// logging one -- which look identical in a plain list. Picking the logging
+// port connects fine and then answers nothing, which is a genuinely
+// confusing failure. ZMK declares the RPC interface first, and macOS names
+// ports by interface number, so among ports of the same USB device the
+// lowest trailing number is the RPC one. Heuristic, hence "推奨" rather
+// than hiding the other entry outright.
+function rankSerialPorts(portList) {
+  const trailing = (p) => {
+    const m = /(\d+)\s*$/.exec(p.portName || p.displayName || '')
+    return m ? Number(m[1]) : Number.MAX_SAFE_INTEGER
+  }
+  const key = (p) => `${p.vendorId}:${p.productId}`
+  // Only meaningful when one physical device contributes several ports.
+  const counts = portList.reduce((acc, p) => ((acc[key(p)] = (acc[key(p)] || 0) + 1), acc), {})
+  const best = {}
+  for (const p of portList) {
+    const k = key(p)
+    if (counts[k] > 1 && (best[k] === undefined || trailing(p) < best[k])) best[k] = trailing(p)
+  }
+
+  // macOS always lists a phantom Bluetooth-Incoming-Port with no USB identity
+  // next to the real device, so "the only port that is actually USB" is a
+  // recommendation worth making on its own.
+  const usbPorts = portList.filter((p) => p.vendorId)
+  const soleUsbPort = usbPorts.length === 1 ? usbPorts[0] : null
+
+  const entries = portList.map((p, i) => {
+    const name = p.portName || p.displayName || `Port ${i + 1}`
+    const sibling = counts[key(p)] > 1
+    const recommended = sibling
+      ? trailing(p) === best[key(p)]
+      : p === soleUsbPort
+    let label = name
+    if (recommended) label = `${name}（推奨${sibling ? ': Studio RPC' : ''}）`
+    else if (sibling) label = `${name}（ログ出力用と思われます）`
+    else if (!p.vendorId) label = `${name}（USBデバイスではありません）`
+    return { port: p, label, recommended }
+  })
+  // Recommended first so it's also the default button.
+  return entries.sort((a, b) => Number(b.recommended) - Number(a.recommended))
+}
+
 function wireSerialPermissions(ses) {
   ses.on('select-serial-port', (event, portList, webContents, callback) => {
     event.preventDefault()
@@ -808,20 +853,25 @@ function wireSerialPermissions(ses) {
       return
     }
 
-    const labels = portList.map((p, i) => p.displayName || p.portName || `Port ${i + 1}`)
+    const ranked = rankSerialPorts(portList)
+    const labels = ranked.map((p) => p.label)
     const opts = {
       type: 'question',
       title: 'Select a serial port',
       message: 'Multiple serial ports were found. Which one is your Conductor device?',
+      detail: ranked.some((p) => p.recommended)
+        ? 'デバッグ版ファームウェアはログ出力用のポートも見せます。そちらを選ぶと接続はできても一切応答しません（「推奨」が付いているものがStudio用です）。'
+        : undefined,
       buttons: [...labels, 'Cancel'],
       cancelId: labels.length,
+      defaultId: 0,
     }
     // Async, and only ever parented to a *visible* window: showMessageBoxSync
     // blocks the entire main process, and as a sheet on a hidden window it is
     // invisible while doing so -- the whole app, tray included, stops
     // responding with nothing on screen to dismiss.
     pickFromDialog(webContents, opts, labels.length).then((result) => {
-      callback(result < labels.length ? portList[result].portId : '')
+      callback(result < labels.length ? ranked[result].port.portId : '')
     })
   })
 

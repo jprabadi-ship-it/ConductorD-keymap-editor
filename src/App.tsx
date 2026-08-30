@@ -328,6 +328,19 @@ function App() {
           setConnType(conn ? type : null);
           if (conn) {
             const info = await getDeviceInfo();
+            // A port that opens but answers nothing is almost always the
+            // wrong one -- the debug firmware publishes a logging port next
+            // to the RPC one, and they're indistinguishable in the browser's
+            // own picker. Say so here, at connect time, instead of letting it
+            // surface much later as a failed Write.
+            if (!info) {
+              debugLog('ERR', 'USB', 'Connected, but the device is not answering. Likely the wrong serial port.');
+              showToast('接続しましたが応答がありません（ポート違いの可能性）', 'error');
+              alert('ポートは開けましたが、デバイスから応答がありません。\n\n'
+                + '別のシリアルポートを選んで接続し直してください。'
+                + 'デバッグ版ファームウェアはログ出力用のポートも見せるため、'
+                + 'そちらを選ぶとこの状態になります。');
+            }
             if (info) {
               debugLog('INF', 'USB', `Device: ${info.name} (FW: ${info.firmwareVersion})`);
               if (isFirmwareVersionSupported(info.firmwareVersion) === false) {
