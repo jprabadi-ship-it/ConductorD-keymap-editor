@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { KeymapStore } from '../../store/useKeymapStore';
 import { Combo } from '../../types';
 import { KEYBOARD_LAYOUT, keyIdsToPositions, positionsToKeyIds } from '../../data/layout';
-import { getAutoLayer, isConnected, isUnlocked, requestUnlock, setAutoLayer } from '../../services/usbService';
+import { getAutoLayer, isConnected, isUnlocked, requestUnlock, setAutoLayer, unlockFailureMessage } from '../../services/usbService';
 import { KEY_CATEGORIES, searchKeyCodes } from '../../data/keycodes';
 import { debugLog } from '../DebugConsole';
 
@@ -244,7 +244,7 @@ export function ComboList({ store }: Props) {
                 <button className="btn" style={{ fontSize: 11, color: 'var(--success)', fontWeight: 600 }} onClick={async () => {
                   if (isConnected()) {
                     if (!isUnlocked() && !(await requestUnlock())) {
-                      alert('デバイスがロックされています'); return;
+                      alert(unlockFailureMessage()); return;
                     }
                     await setAutoLayer(amlEnabled, amlIdleMs, keyIdsToPositions(store.amlExcluded), amlMotion, amlDuration);
                     debugLog('INF', 'AML', 'Settings applied');

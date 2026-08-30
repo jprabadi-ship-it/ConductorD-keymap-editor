@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { KeymapStore } from '../../store/useKeymapStore';
-import { isConnected, isUnlocked, requestUnlock, getTappingTerm, setTappingTerm, saveChanges, listBehaviors, getBehaviorDetails, getHoldTapPositions, setHoldTapPositions, getHoldTapFlavor, setHoldTapFlavor, getKeyRepeatEnabled, setKeyRepeatEnabled } from '../../services/usbService';
+import { isConnected, isUnlocked, requestUnlock, getTappingTerm, setTappingTerm, saveChanges, listBehaviors, getBehaviorDetails, getHoldTapPositions, setHoldTapPositions, getHoldTapFlavor, setHoldTapFlavor, getKeyRepeatEnabled, setKeyRepeatEnabled, unlockFailureMessage } from '../../services/usbService';
 import { debugLog } from '../DebugConsole';
 import { keyIdsToPositions, positionsToKeyIds } from '../../data/layout';
 import { MiniKeyboardPicker } from './MiniKeyboardPicker';
@@ -94,7 +94,7 @@ export function TimingConfig({ store }: Props) {
   const toggleKeyRepeat = async () => {
     if (!isConnected()) { debugLog('WRN', 'Timing', 'Not connected'); return; }
     if (!isUnlocked() && !(await requestUnlock())) {
-      alert('デバイスがロックされています');
+      alert(unlockFailureMessage());
       return;
     }
     setKeyRepeatBusy(true);
@@ -176,7 +176,7 @@ export function TimingConfig({ store }: Props) {
     if (entry.behaviorId === null) return;
     if (!isConnected()) { debugLog('WRN', 'Timing', 'Not connected'); return; }
     if (!isUnlocked() && !(await requestUnlock())) {
-      alert('デバイスがロックされています');
+      alert(unlockFailureMessage());
       return;
     }
     const ok = await setHoldTapPositions(entry.behaviorId, keyIdsToPositions(entry.keyIds));
@@ -190,7 +190,7 @@ export function TimingConfig({ store }: Props) {
     if (entry.behaviorId === null) return;
     if (!isConnected()) { debugLog('WRN', 'Timing', 'Not connected'); return; }
     if (!isUnlocked() && !(await requestUnlock())) {
-      alert('デバイスがロックされています');
+      alert(unlockFailureMessage());
       return;
     }
     const ok = await setHoldTapPositions(entry.behaviorId, [], true);
@@ -209,7 +209,7 @@ export function TimingConfig({ store }: Props) {
     if (entry.behaviorId === null) return;
     if (!isConnected()) { debugLog('WRN', 'Timing', 'Not connected'); return; }
     if (!isUnlocked() && !(await requestUnlock())) {
-      alert('デバイスがロックされています');
+      alert(unlockFailureMessage());
       return;
     }
     const ok = await setHoldTapFlavor(entry.behaviorId, flavor);
@@ -223,7 +223,7 @@ export function TimingConfig({ store }: Props) {
     if (entry.behaviorId === null) return;
     if (!isConnected()) { debugLog('WRN', 'Timing', 'Not connected'); return; }
     if (!isUnlocked() && !(await requestUnlock())) {
-      alert('デバイスがロックされています');
+      alert(unlockFailureMessage());
       return;
     }
     const ok = await setHoldTapFlavor(entry.behaviorId, 0, true);
@@ -241,7 +241,7 @@ export function TimingConfig({ store }: Props) {
   const handleSave = async () => {
     if (!isConnected()) { debugLog('WRN', 'Timing', 'Not connected'); return; }
     if (!isUnlocked() && !(await requestUnlock())) {
-      alert('デバイスがロックされています');
+      alert(unlockFailureMessage());
       return;
     }
     const ok = await setTappingTerm(store.tappingTerm);

@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useKeymapStore } from './store/useKeymapStore';
-import { readKeymap, writeKeymapToDevice, saveChanges, setLayerProps, getDeviceInfo, getFirmwareInfo, requestUnlock, isUnlocked, readMacrosFromDevice, onDeviceDisconnect, onActiveLayerChange, onKeyInputEvent, subscribeToInput, getRuntimeState, setKeyboardLayout, getBehaviorDisplayName, getCombosFromDevice, writeCombosToDevice, verifyDeviceState } from './services/usbService';
+import { readKeymap, writeKeymapToDevice, saveChanges, setLayerProps, getDeviceInfo, getFirmwareInfo, requestUnlock, isUnlocked, getUnlockFailure, unlockFailureMessage, readMacrosFromDevice, onDeviceDisconnect, onActiveLayerChange, onKeyInputEvent, subscribeToInput, getRuntimeState, setKeyboardLayout, getBehaviorDisplayName, getCombosFromDevice, writeCombosToDevice, verifyDeviceState } from './services/usbService';
 import { saveWriteBackup } from './services/writeBackups';
 import type { KeymapProject } from './types';
 import { isFirmwareVersionSupported, checkFirmwareUpdate, analyzeFirmwareConsistency, MIN_SUPPORTED_FW_VERSION } from './services/firmwareCompat';
@@ -350,7 +350,9 @@ function App() {
             }
             const ok = await requestUnlock();
             if (!ok) {
-              debugLog('WRN', 'USB', 'Device is locked. Write operations will fail. Press studio_unlock combo on keyboard.');
+              debugLog('WRN', 'USB', getUnlockFailure() === 'unreachable'
+                ? 'Device is not responding. Writes will fail -- check the cable and which serial port is selected.'
+                : 'Device is locked. Write operations will fail. Press studio_unlock combo on keyboard.');
             }
             // Cross-unit firmware consistency: the dongle reports L/R build
             // identities read over the split link. Warn immediately on a
@@ -379,8 +381,8 @@ function App() {
               debugLog('WRN', 'Editor', 'Device is locked. Attempting unlock...');
               const unlocked = await requestUnlock();
               if (!unlocked) {
-                debugLog('ERR', 'Editor', 'Cannot write: device is locked. Press studio_unlock combo on keyboard.');
-                alert('デバイスがロックされています。キーボードのstudio_unlockコンボを押してからもう一度試してください。');
+                debugLog('ERR', 'Editor', `Cannot write: ${getUnlockFailure() === 'unreachable' ? 'device not responding' : 'device is locked'}`);
+                alert(unlockFailureMessage());
                 return;
               }
             }

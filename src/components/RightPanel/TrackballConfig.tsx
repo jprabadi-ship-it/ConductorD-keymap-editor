@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { KeymapStore } from '../../store/useKeymapStore';
-import { isConnected, isUnlocked, requestUnlock, setSensitivity, setAutoLayer, setPrecisionScale, setSpeedScale, setAccel, getSensitivity, getAutoLayer, getPrecisionScale, getSpeedScale, getAccel, getInertia, setInertia, getDragScale, setDragScale, saveChanges as savePointingChanges, getBleProfiles, getUsbSlots, setActiveBleProfile, setActiveUsbSlot, getOsConfig, getGestureConfig } from '../../services/usbService';
+import { isConnected, isUnlocked, requestUnlock, setSensitivity, setAutoLayer, setPrecisionScale, setSpeedScale, setAccel, getSensitivity, getAutoLayer, getPrecisionScale, getSpeedScale, getAccel, getInertia, setInertia, getDragScale, setDragScale, saveChanges as savePointingChanges, getBleProfiles, getUsbSlots, setActiveBleProfile, setActiveUsbSlot, getOsConfig, getGestureConfig, unlockFailureMessage } from '../../services/usbService';
 import { KEY_CATEGORIES, KEYCODES, searchKeyCodes } from '../../data/keycodes';
 import { debugLog } from '../DebugConsole';
 import { KEYBOARD_LAYOUT, keyIdsToPositions, positionsToKeyIds } from '../../data/layout';
@@ -884,7 +884,7 @@ export function TrackballConfig({ store }: Props) {
           <button className="btn btn-primary" style={{ flex: 1 }} onClick={async () => {
             if (!isConnected()) return;
             if (!isUnlocked() && !(await requestUnlock())) {
-              alert('デバイスがロックされています'); return;
+              alert(unlockFailureMessage()); return;
             }
             await setSensitivity(cpi, Math.round(scrollSensitivity * 100), 100, scrollDirection === 'inverted');
             await setPrecisionScale(Math.round(precisionSensitivity * 100), 100);

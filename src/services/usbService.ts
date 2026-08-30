@@ -558,41 +558,68 @@ export async function getRuntimeState(): Promise<RuntimeBatteryState | null> {
   }
 }
 
-export async function getLockState(): Promise<number> {
+// null = the device never answered, which is NOT the same as answering "0"
+// (locked). Collapsing the two used to make every timeout look like a locked
+// device, sending you off to press an unlock combo that couldn't help.
+export async function getLockState(): Promise<number | null> {
   try {
     const resp = await sendRequest({ core: { getLockState: true } });
     return resp.core?.getLockState ?? 0;
   } catch (e: any) {
     debugLog('ERR', 'USB', `getLockState failed: ${e.message}`);
-    return 0;
+    return null;
   }
 }
 
 let unlocked = false;
+// Why the last requestUnlock() failed, so callers can say something true:
+// 'locked' = the device answered and said it's locked; 'unreachable' = it
+// didn't answer at all (bad cable, wrong serial port, firmware wedged).
+export type UnlockFailure = 'locked' | 'unreachable';
+let lastUnlockFailure: UnlockFailure | null = null;
 
 export function isUnlocked(): boolean {
   return unlocked;
 }
 
+export function getUnlockFailure(): UnlockFailure | null {
+  return lastUnlockFailure;
+}
+
+/** Message matching why the unlock actually failed. */
+export function unlockFailureMessage(): string {
+  if (lastUnlockFailure === 'unreachable') {
+    return 'デバイスから応答がありません（タイムアウト）。\n\n'
+      + '・ケーブルと接続を確認し、一度切断してから接続し直してください\n'
+      + '・シリアルポートが複数見える場合は、別のポートを選び直してください'
+      + '（デバッグ版ファームウェアはログ用のポートも見えます）';
+  }
+  return 'デバイスがロックされています。キーボードのstudio_unlockコンボを押してからもう一度試してください。';
+}
+
 export async function requestUnlock(): Promise<boolean> {
   debugLog('INF', 'USB', 'Checking lock state...');
-  try {
-    const state = await getLockState();
+  const state = await getLockState();
+  if (state === null) {
+    debugLog('WRN', 'USB', 'Lock state: no response');
+  } else {
     debugLog('INF', 'USB', `Lock state: ${state} (0=locked, 1=unlocked)`);
     if (state === 1) {
       unlocked = true;
+      lastUnlockFailure = null;
       debugLog('INF', 'USB', 'Device is unlocked');
       return true;
     }
-  } catch (e: any) {
-    debugLog('WRN', 'USB', `getLockState failed: ${e.message}`);
   }
 
   // Probe behaviors as fallback
+  let probeAnswered = false;
   try {
     const behaviors = await listBehaviors();
+    probeAnswered = true;
     if (behaviors.length > 0) {
       unlocked = true;
+      lastUnlockFailure = null;
       debugLog('INF', 'USB', `Device accessible (${behaviors.length} behaviors). Treating as unlocked.`);
       return true;
     }
@@ -601,7 +628,14 @@ export async function requestUnlock(): Promise<boolean> {
   }
 
   unlocked = false;
-  debugLog('WRN', 'USB', 'Device is LOCKED. Press the studio_unlock combo on your keyboard to unlock.');
+  // Only call it locked if something actually answered; otherwise the device
+  // is simply not talking to us.
+  lastUnlockFailure = state === null && !probeAnswered ? 'unreachable' : 'locked';
+  if (lastUnlockFailure === 'unreachable') {
+    debugLog('ERR', 'USB', 'Device is not responding (no RPC replies). Check the cable / serial port selection.');
+  } else {
+    debugLog('WRN', 'USB', 'Device is LOCKED. Press the studio_unlock combo on your keyboard to unlock.');
+  }
   return false;
 }
 
