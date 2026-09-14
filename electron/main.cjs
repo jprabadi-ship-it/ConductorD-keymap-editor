@@ -824,36 +824,60 @@ function pickFromDialog(webContents, opts, cancelIndex) {
 // ports by interface number, so among ports of the same USB device the
 // lowest trailing number is the RPC one. Heuristic, hence "推奨" rather
 // than hiding the other entry outright.
+// ZMK's default USB identity; every Conductor build (R, L, dongle, debug)
+// enumerates with it, which is more reliable than guessing from port names.
+const ZMK_USB_VID = 0x1d50
+const ZMK_USB_PID = 0x615e
+
+// Electron hands these over as strings; the docs do not pin the radix, so
+// accept decimal ("7504"), bare hex ("1d50") and prefixed hex ("0x1d50").
+function usbIdNumber(v) {
+  if (typeof v === 'number') return v
+  if (typeof v !== 'string' || !v) return NaN
+  if (/^0x/i.test(v) || /[a-f]/i.test(v)) return parseInt(v, 16)
+  return parseInt(v, 10)
+}
+
 function rankSerialPorts(portList) {
   const trailing = (p) => {
     const m = /(\d+)\s*$/.exec(p.portName || p.displayName || '')
     return m ? Number(m[1]) : Number.MAX_SAFE_INTEGER
   }
-  const key = (p) => `${p.vendorId}:${p.productId}`
-  // Only meaningful when one physical device contributes several ports.
-  const counts = portList.reduce((acc, p) => ((acc[key(p)] = (acc[key(p)] || 0) + 1), acc), {})
+  const hasUsbId = (p) => !Number.isNaN(usbIdNumber(p.vendorId)) && !Number.isNaN(usbIdNumber(p.productId))
+  const isZmk = (p) => usbIdNumber(p.vendorId) === ZMK_USB_VID && usbIdNumber(p.productId) === ZMK_USB_PID
+  // Ports without a USB identity (Bluetooth-Incoming-Port, debug-console,
+  // paired BT audio devices) must never be grouped with each other: they
+  // are unrelated phantoms, not siblings of one physical device.
+  const key = (p) => (hasUsbId(p) ? `${usbIdNumber(p.vendorId)}:${usbIdNumber(p.productId)}` : null)
+  const counts = portList.reduce((acc, p) => {
+    const k = key(p)
+    if (k) acc[k] = (acc[k] || 0) + 1
+    return acc
+  }, {})
   const best = {}
   for (const p of portList) {
     const k = key(p)
-    if (counts[k] > 1 && (best[k] === undefined || trailing(p) < best[k])) best[k] = trailing(p)
+    if (k && counts[k] > 1 && (best[k] === undefined || trailing(p) < best[k])) best[k] = trailing(p)
   }
 
-  // macOS always lists a phantom Bluetooth-Incoming-Port with no USB identity
-  // next to the real device, so "the only port that is actually USB" is a
-  // recommendation worth making on its own.
-  const usbPorts = portList.filter((p) => p.vendorId)
-  const soleUsbPort = usbPorts.length === 1 ? usbPorts[0] : null
+  const zmkPorts = portList.filter(isZmk)
+  const usbPorts = portList.filter(hasUsbId)
+  // With no ZMK identity in the list, "the only real USB port" is still a
+  // recommendation worth making; other USB devices present means no guess.
+  const soleUsbPort = zmkPorts.length === 0 && usbPorts.length === 1 ? usbPorts[0] : null
 
   const entries = portList.map((p, i) => {
     const name = p.portName || p.displayName || `Port ${i + 1}`
-    const sibling = counts[key(p)] > 1
-    const recommended = sibling
-      ? trailing(p) === best[key(p)]
-      : p === soleUsbPort
+    const k = key(p)
+    const sibling = !!k && counts[k] > 1
+    let recommended
+    if (zmkPorts.length > 0) recommended = isZmk(p) && (!sibling || trailing(p) === best[k])
+    else recommended = sibling ? trailing(p) === best[k] : p === soleUsbPort
     let label = name
-    if (recommended) label = `${name}（推奨${sibling ? ': Studio RPC' : ''}）`
+    if (recommended) label = `${name}（推奨${isZmk(p) ? ': Conductor' : ''}${sibling ? ' Studio RPC' : ''}）`
     else if (sibling) label = `${name}（ログ出力用と思われます）`
-    else if (!p.vendorId) label = `${name}（USBデバイスではありません）`
+    else if (!hasUsbId(p)) label = `${name}（USBデバイスではありません）`
+    else if (zmkPorts.length > 0) label = `${name}（別のUSB機器）`
     return { port: p, label, recommended }
   })
   // Recommended first so it's also the default button.
