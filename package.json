@@ -1,7 +1,7 @@
 {
   "name": "conductor-keymap-editor",
   "private": true,
-  "version": "0.38.53",
+  "version": "0.38.54",
   "license": "GPL-3.0-or-later",
   "type": "module",
   "main": "electron/main.cjs",
@@ -15,25 +15,25 @@
     "release": "bash scripts/release.sh"
   },
   "dependencies": {
-    "@stoprocent/noble": "^2.7.1",
+    "@stoprocent/noble": "^2.8.0",
     "extract-zip": "^2.0.1",
-    "protobufjs": "^8.6.5",
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "protobufjs": "^8.8.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
   },
   "devDependencies": {
-    "@types/node": "^24.13.2",
-    "@types/react": "^19.2.17",
-    "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^6.0.2",
-    "concurrently": "^10.0.3",
+    "@types/node": "^26.5.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "concurrently": "^10.0.5",
     "cross-env": "^10.1.0",
-    "electron": "^43.1.0",
+    "electron": "^44.3.0",
     "electron-builder": "^26.15.3",
-    "oxlint": "^1.69.0",
+    "oxlint": "^1.83.0",
     "typescript": "~6.0.2",
-    "vite": "^8.1.0",
-    "wait-on": "^9.0.10"
+    "vite": "^8.3.0",
+    "wait-on": "^9.1.0"
   },
   "build": {
     "appId": "com.jprabadi.conductor-keymap-editor",
