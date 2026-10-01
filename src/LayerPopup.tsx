@@ -106,9 +106,25 @@ export function LayerPopup() {
   // transition (see the tray-relay effect below).
   const wasLocallyConnected = useRef(false);
 
+  // The Studio window relays its keymap (rarely) and live state (per key
+  // event) on separate channels; merge them back into one LayerState here.
   useEffect(() => {
     const api = (window as any).electronAPI;
-    return api?.onLayerState?.((s: LayerState) => setState(s));
+    const offKeymap = api?.onLayerKeymap?.((k: Pick<LayerState, 'layers' | 'combos' | 'amlExcluded'>) =>
+      setState(prev => ({ highestLayer: 0, connected: false, pressedPositions: [], battery: null, ...prev, ...k })));
+    const offState = api?.onLayerState?.((s: Omit<LayerState, 'layers' | 'combos' | 'amlExcluded'>) =>
+      setState(prev => ({ layers: [], combos: [], amlExcluded: [], ...prev, ...s })));
+    return () => { offKeymap?.(); offState?.(); };
+  }, []);
+
+  // After the main process reloads this window to reclaim memory, pick the
+  // USB port back up without a click (BLE is re-adopted on mount already).
+  useEffect(() => {
+    const api = (window as any).electronAPI;
+    return api?.onRestoreConnection?.((type: 'usb' | 'bluetooth') => {
+      if (type === 'usb') handleConnectRef.current('usb', { silent: true });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -195,19 +211,23 @@ export function LayerPopup() {
       if (wasLocallyConnected.current) {
         wasLocallyConnected.current = false;
         (window as any).electronAPI?.sendLayerState?.({
-          layers: [], combos: [], amlExcluded: [], highestLayer: 0,
-          connected: false, pressedPositions: [], battery: null,
+          highestLayer: 0, connected: false, pressedPositions: [], battery: null, connType: null,
         });
       }
       return;
     }
     wasLocallyConnected.current = true;
     (window as any).electronAPI?.sendLayerState?.({
-      layers: localConn.layers, combos: localConn.combos, amlExcluded: localConn.amlExcluded,
       highestLayer: localConn.highestLayer, connected: true, pressedPositions: localConn.pressedPositions,
-      battery: localConn.battery,
+      battery: localConn.battery, connType,
     });
-  }, [localConn.connected, localConn.layers, localConn.combos, localConn.amlExcluded, localConn.highestLayer, localConn.pressedPositions, localConn.battery]);
+  }, [localConn.connected, localConn.highestLayer, localConn.pressedPositions, localConn.battery, connType]);
+  useEffect(() => {
+    if (!localConn.connected) return;
+    (window as any).electronAPI?.sendLayerKeymap?.({
+      layers: localConn.layers, combos: localConn.combos, amlExcluded: localConn.amlExcluded,
+    });
+  }, [localConn.connected, localConn.layers, localConn.combos, localConn.amlExcluded]);
 
   // Port handoff with the Studio window: when Studio wants to connect we
   // release our connection (remembering the transport), and when Studio

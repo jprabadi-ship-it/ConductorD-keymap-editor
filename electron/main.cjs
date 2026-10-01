@@ -9,6 +9,13 @@ const extractZip = require('extract-zip')
 const isDev = !app.isPackaged
 const preloadPath = path.join(__dirname, 'preload.cjs')
 
+// Opt-in DevTools protocol endpoint for the packaged app, so a renderer heap
+// snapshot can be taken from outside when memory misbehaves:
+//   CONDUCTORD_INSPECT_PORT=9333 open -a "ConductorD Studio"
+if (process.env.CONDUCTORD_INSPECT_PORT) {
+  app.commandLine.appendSwitch('remote-debugging-port', process.env.CONDUCTORD_INSPECT_PORT)
+}
+
 // Route external links (FW download, Mac app download, anything http/https)
 // to the system browser instead of navigating the Electron window: the app's
 // session has no GitHub login, so private-repo release pages come back as
@@ -34,7 +41,10 @@ let win = null
 let tray = null
 let popupWin = null
 let isQuitting = false
-let latestLayerState = null
+let latestLayerKeymap = null // layers/combos/amlExcluded -- large, rare
+let latestLayerState = null // highestLayer/pressed/battery/connected -- small, per keystroke
+let popupConnType = null // transport the popup itself holds, from its live relay
+let popupRestoreConnType = null // set across a watchdog reload, consumed on load
 
 function createWindow() {
   // Launch filling the screen's usable area (menu bar/Dock excluded) rather
@@ -175,7 +185,12 @@ function createPopupWindow() {
   popupWin.webContents.on('did-finish-load', () => {
     popupWin.webContents.send('set-theme', popupTheme)
     popupWin.webContents.send('show-minimap', showMinimap)
+    if (latestLayerKeymap) popupWin.webContents.send('layer-keymap', latestLayerKeymap)
     if (latestLayerState) popupWin.webContents.send('layer-state', latestLayerState)
+    if (popupRestoreConnType) {
+      popupWin.webContents.send('restore-connection', popupRestoreConnType)
+      popupRestoreConnType = null
+    }
   })
 
   return popupWin
@@ -244,6 +259,7 @@ function showPopup() {
   if (!popupUserMoved) positionPopupBottomCenter()
   popupWin.show()
   popupWin.focus()
+  if (latestLayerKeymap) popupWin.webContents.send('layer-keymap', latestLayerKeymap)
   if (latestLayerState) popupWin.webContents.send('layer-state', latestLayerState)
   popupWin.webContents.send('show-minimap', showMinimap)
   popupWin.webContents.send('set-theme', popupTheme)
@@ -401,11 +417,43 @@ function updateTrayBatteryIcon(battery) {
   tray.setTitle(disconnected ? '' : ` L${fmt(l)} R${fmt(r)}`)
 }
 
-ipcMain.on('layer-state', (_event, state) => {
+// The popup renders its own connection directly and ignores what it gets
+// back over IPC, so never echo a popup-originated message to the popup: that
+// echo was a full structured-clone round trip per keystroke.
+const fromPopup = (event) => !!popupWin && event.sender === popupWin.webContents
+
+ipcMain.on('layer-keymap', (event, keymap) => {
+  latestLayerKeymap = keymap
+  if (popupWin && !fromPopup(event)) popupWin.webContents.send('layer-keymap', keymap)
+})
+
+ipcMain.on('layer-state', (event, state) => {
   latestLayerState = state
-  if (popupWin) popupWin.webContents.send('layer-state', state)
+  if (fromPopup(event)) popupConnType = state?.connected ? (state?.connType ?? null) : null
+  else if (popupWin) popupWin.webContents.send('layer-state', state)
   updateTrayBatteryIcon(state?.battery)
 })
+
+// Memory watchdog for the always-on minimap renderer. Its Blink-side
+// allocations were observed at 400 MB after two days of use; a reload
+// rebuilds the page from scratch while the BLE link (which lives in this
+// process) is adopted again on mount, and a USB port is reopened silently.
+const POPUP_MEMORY_LIMIT_KB = 300 * 1024
+const POPUP_MEMORY_CHECK_MS = 10 * 60 * 1000
+async function checkPopupMemory() {
+  if (!popupWin || popupWin.isDestroyed()) return
+  let info
+  try { info = await popupWin.webContents.getProcessMemoryInfo() } catch { return }
+  const privateKb = info?.private ?? 0
+  if (privateKb < POPUP_MEMORY_LIMIT_KB) return
+  // Never reload mid-keystroke; the next check will catch it.
+  if (latestLayerState?.pressedPositions?.length) return
+  bleBroadcast('ble-scan-log',
+    `[memory] minimap renderer at ${Math.round(privateKb / 1024)} MB, reloading it to reclaim memory`)
+  popupRestoreConnType = popupConnType
+  popupWin.webContents.reload()
+}
+setInterval(checkPopupMemory, POPUP_MEMORY_CHECK_MS)
 
 ipcMain.on('popup-context-menu', showPopupContextMenu)
 

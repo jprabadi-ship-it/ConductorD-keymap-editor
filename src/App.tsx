@@ -199,12 +199,19 @@ function App() {
   // Relays live layer state to the Electron main process, which forwards it
   // to the menu-bar tray's small popup window (see electron/main.cjs). A
   // no-op in a plain browser tab, where window.electronAPI doesn't exist.
+  // Keymap and live state travel separately: the keymap only when it
+  // changes, the live part on every key event (it used to drag the whole
+  // keymap along with each keystroke).
+  useEffect(() => {
+    (window as any).electronAPI?.sendLayerKeymap?.({
+      layers: store.layers, combos: store.combos, amlExcluded: store.amlExcluded,
+    });
+  }, [store.layers, store.combos, store.amlExcluded]);
   useEffect(() => {
     (window as any).electronAPI?.sendLayerState?.({
-      layers: store.layers, combos: store.combos, amlExcluded: store.amlExcluded,
       highestLayer, connected: usbConnected, pressedPositions, battery: popupBattery,
     });
-  }, [store.layers, store.combos, store.amlExcluded, highestLayer, usbConnected, pressedPositions, popupBattery]);
+  }, [highestLayer, usbConnected, pressedPositions, popupBattery]);
 
   // Auto-save on changes
   useEffect(() => {
