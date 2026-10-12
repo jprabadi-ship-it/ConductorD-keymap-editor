@@ -37,6 +37,7 @@ type PendingRequest = {
 const pendingRequests = new Map<number, PendingRequest>();
 
 function resetConnectionState() {
+  macroTableLoaded = false;
   for (const pending of pendingRequests.values()) {
     clearTimeout(pending.timeout);
     pending.reject(new Error('Connection closed'));
@@ -2212,6 +2213,68 @@ export function registerMacroDeviceId(name: string, deviceId: number) {
   macroNameToDeviceId[name] = deviceId;
 }
 
+let macroTableLoaded = false;
+
+// Make sure every editor macro in `names` actually exists on the device
+// before the keymap bindings that point at it are written. Without this a
+// key bound to a macro that was never written (or was wiped by a factory
+// reset and then restored only in the editor by an import) resolved to
+// behavior 0 and failed with INVALID_BEHAVIOR -- and the keymap's own Write
+// had no step that could fix it.
+export async function ensureMacrosOnDevice(
+  macros: import('../types').Macro[],
+  names: Iterable<string>,
+): Promise<{ assigned: Record<string, number>; failed: string[] }> {
+  const assigned: Record<string, number> = {};
+  const failed: string[] = [];
+  const wanted = [...new Set(names)].filter(n => macros.some(m => m.name === n));
+  if (wanted.length === 0) return { assigned, failed };
+
+  // The slot table is only known after a Read; a connect alone leaves it
+  // empty, so a stored deviceId cannot be trusted until the device has been
+  // asked what is really in its slots.
+  if (!macroTableLoaded) {
+    await readMacrosFromDevice();
+    macroTableLoaded = true;
+  }
+
+  for (const name of wanted) {
+    if (macroNameToDeviceId[name] !== undefined) continue;
+    const macro = macros.find(m => m.name === name)!;
+    let slot: number | null = null;
+    if (macro.deviceId !== undefined && freeDeviceMacroSlots.includes(macro.deviceId)) {
+      // Its old slot is empty on the device (factory reset): reuse it so the
+      // editor's deviceId stays valid.
+      slot = macro.deviceId;
+      freeDeviceMacroSlots = freeDeviceMacroSlots.filter(s => s !== slot);
+    } else {
+      slot = claimFreeMacroSlot();
+    }
+    if (slot === null) {
+      debugLog('ERR', 'USB', `Macro "${name}" is not on the device and no free macro slot is left`);
+      failed.push(name);
+      continue;
+    }
+    const wireSteps = computeMacroWireStepCount(macro);
+    if (wireSteps > MAX_MACRO_WIRE_STEPS) {
+      releaseMacroSlot(slot);
+      debugLog('ERR', 'USB', `Macro "${name}" needs ${wireSteps} device steps, firmware allows ${MAX_MACRO_WIRE_STEPS}`);
+      failed.push(name);
+      continue;
+    }
+    debugLog('INF', 'USB', `Macro "${name}" is missing on the device -- writing it to slot ${slot} first`);
+    const ok = await writeMacroToDevice(slot, macro);
+    if (!ok) {
+      releaseMacroSlot(slot);
+      failed.push(name);
+      continue;
+    }
+    registerMacroDeviceId(name, slot);
+    assigned[name] = slot;
+  }
+  return { assigned, failed };
+}
+
 function isDynamicSlot(name: string): boolean {
   return /^m_dyn_\d+$/.test(name);
 }
@@ -2275,6 +2338,7 @@ export async function readMacrosFromDevice(): Promise<import('../types').Macro[]
         macroNameToDeviceId[m.name] = m.deviceId;
       }
     }
+    macroTableLoaded = true;
     debugLog('INF', 'USB', `readMacrosFromDevice: ${macros.length} macros loaded, ${freeDeviceMacroSlots.length} free slots`);
     return macros;
   } catch (e: any) {

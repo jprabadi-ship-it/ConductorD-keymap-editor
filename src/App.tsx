@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useKeymapStore } from './store/useKeymapStore';
-import { readKeymap, writeKeymapToDevice, saveChanges, setLayerProps, getDeviceInfo, getFirmwareInfo, requestUnlock, isUnlocked, getUnlockFailure, unlockFailureMessage, readMacrosFromDevice, adoptExistingBleConnection, onDeviceDisconnect, onDeviceReconnect, onActiveLayerChange, onKeyInputEvent, subscribeToInput, getRuntimeState, setKeyboardLayout, getBehaviorDisplayName, getCombosFromDevice, writeCombosToDevice, verifyDeviceState } from './services/usbService';
+import { ensureMacrosOnDevice, isConnected, readKeymap, writeKeymapToDevice, saveChanges, setLayerProps, getDeviceInfo, getFirmwareInfo, requestUnlock, isUnlocked, getUnlockFailure, unlockFailureMessage, readMacrosFromDevice, adoptExistingBleConnection, onDeviceDisconnect, onDeviceReconnect, onActiveLayerChange, onKeyInputEvent, subscribeToInput, getRuntimeState, setKeyboardLayout, getBehaviorDisplayName, getCombosFromDevice, writeCombosToDevice, verifyDeviceState } from './services/usbService';
 import { saveWriteBackup } from './services/writeBackups';
 import type { KeymapProject } from './types';
 import { isFirmwareVersionSupported, checkFirmwareUpdate, analyzeFirmwareConsistency, MIN_SUPPORTED_FW_VERSION } from './services/firmwareCompat';
@@ -438,6 +438,32 @@ function App() {
                 return;
               }
             }
+            // Macros referenced by the keys about to be written must exist on
+            // the device first, or those bindings fail with INVALID_BEHAVIOR.
+            const referencedMacros = new Set<string>();
+            for (const [arrayIdx, layer] of store.layers.entries()) {
+              for (const key of layer.keys) {
+                // Dirty keys are tracked under either the layer id or its
+                // array position (same two forms writeKeymapToDevice accepts).
+                if (!store.dirtyKeys.has(`${layer.index}:${key.id}`) && !store.dirtyKeys.has(`${arrayIdx}:${key.id}`)) continue;
+                const kc = key.binding.keyCode;
+                if (kc?.startsWith('&') && kc.length > 1) referencedMacros.add(kc.substring(1));
+              }
+            }
+            if (referencedMacros.size > 0) {
+              showToast('書き込み処理中... (0/5 マクロ確認)', 'progress', { persist: true });
+              const ensured = await ensureMacrosOnDevice(store.macros, referencedMacros);
+              for (const [name, deviceId] of Object.entries(ensured.assigned)) {
+                const idx = store.macros.findIndex(m => m.name === name);
+                if (idx >= 0) store.updateMacro(idx, { deviceId });
+                debugLog('INF', 'Editor', `Macro "${name}" written to device slot ${deviceId}`);
+              }
+              if (ensured.failed.length > 0) {
+                debugLog('ERR', 'Editor', `Write aborted: macro(s) could not be put on the device: ${ensured.failed.join(', ')}`);
+                showToast(`マクロ「${ensured.failed.join('」「')}」を実機に書き込めないため中止しました（>_コンソール参照）`, 'error');
+                return;
+              }
+            }
             // Auto-backup: what's on the device right now is (as far as we
             // know) the state captured at the last Read/Write -- stash it so
             // a bad Write can be rolled back from the File menu.
@@ -466,8 +492,15 @@ function App() {
               debugLog('INF', 'Editor', `Combos written (${store.combos.length})`);
             }
             if (!keymapResult.ok && Object.keys(keymapResult.written).length === 0) {
-              debugLog('ERR', 'Editor', 'Write failed: device not connected');
-              showToast('書き込みに失敗しました（未接続）', 'error');
+              // Nothing landed: either the link is gone, or every binding was
+              // rejected (the per-key reasons are already in the console).
+              if (isConnected()) {
+                debugLog('ERR', 'Editor', 'Write failed: the device rejected every key binding -- see the errors above');
+                showToast('キー割り当ての書き込みに失敗しました（>_コンソール参照）', 'error');
+              } else {
+                debugLog('ERR', 'Editor', 'Write failed: device not connected');
+                showToast('書き込みに失敗しました（未接続）', 'error');
+              }
               return;
             }
             showToast('書き込み処理中... (4/5 Flash保存)', 'progress', { persist: true });

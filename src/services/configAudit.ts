@@ -206,6 +206,13 @@ export async function runConfigAudit(project: KeymapProject): Promise<AuditFindi
     }
   }
   for (const macro of project.macros) {
+    if (referencedMacros.has(macro.name) && macro.deviceId === undefined) {
+      findings.push({
+        severity: 'warning',
+        category: 'マクロ',
+        message: `マクロ「${macro.name}」はキーから参照されていますが、まだ実機に書き込まれていません（Write時に自動で書き込みます）`,
+      });
+    }
     if (referencedMacros.has(macro.name) && macro.bindings.length === 0) {
       findings.push({
         severity: 'warning',
