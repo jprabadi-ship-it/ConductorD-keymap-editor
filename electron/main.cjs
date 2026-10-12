@@ -1062,7 +1062,12 @@ app.on('before-quit', (event) => {
     event.preventDefault()
     const p = blePeripheral
     bleNativeCleanup()
-    const finish = () => app.exit(0)
+    // app.exit() is not enough since Electron 44: it now runs
+    // node::FreeEnvironment on the way out, whose napi finalizers reach the
+    // same NobleMac dealloc (sampled: napi_release_threadsafe_function ->
+    // uv_mutex_lock, forever). Only a signal skips that path. The renderer
+    // helpers notice the parent going away and exit on their own.
+    const finish = () => process.kill(process.pid, 'SIGKILL')
     const failsafe = setTimeout(finish, 2000)
     ;(async () => {
       try { nobleMod.stopScanning() } catch { /* not scanning */ }
