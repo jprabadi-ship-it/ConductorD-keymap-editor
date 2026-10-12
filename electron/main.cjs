@@ -666,6 +666,7 @@ async function bleNativeConnectOnce() {
       bleBroadcast('ble-native-disconnected', null)
     })
 
+    bleBroadcast('ble-scan-log', `connected, max write ${bleMaxWrite()} bytes/packet`)
     return { ok: true, name: peripheral.advertisement.localName || 'conductor' }
   } catch (e) {
     bleNativeCleanup()
@@ -689,10 +690,26 @@ ipcMain.handle('ble-native-status', () => ({
 let rpcClientSeq = 0
 ipcMain.handle('rpc-client-id', () => ++rpcClientSeq)
 
+// Largest payload a single ATT write can carry. noble on macOS reports
+// maximumWriteValueLength (ATT_MTU - 3) as peripheral.mtu; 20 is the
+// pre-negotiation minimum and always safe.
+function bleMaxWrite() {
+  const m = blePeripheral?.mtu
+  return Number.isInteger(m) && m >= 20 ? m : 20
+}
+
 ipcMain.handle('ble-native-write', async (_event, bytes) => {
   if (!bleRpcChar) throw new Error('BLE not connected')
-  // write-with-response, mirroring the web path's writeValueWithResponse
-  await bleRpcChar.writeAsync(Buffer.from(bytes), false)
+  // Write-with-response (the RPC characteristic offers nothing else), and
+  // never longer than one ATT packet: CoreBluetooth turns a longer write
+  // into a prepare/execute long write, which ZMK's GATT server rejects
+  // with ATT 0x06 "request not supported" -- macro frames were the first
+  // ones big enough to hit that.
+  const buf = Buffer.from(bytes)
+  const max = bleMaxWrite()
+  for (let off = 0; off < buf.length; off += max) {
+    await bleRpcChar.writeAsync(buf.subarray(off, off + max), false)
+  }
   return true
 })
 
