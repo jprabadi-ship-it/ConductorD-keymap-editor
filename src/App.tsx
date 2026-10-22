@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useKeymapStore } from './store/useKeymapStore';
-import { ensureMacrosOnDevice, isConnected, readKeymap, writeKeymapToDevice, saveChanges, setLayerProps, getDeviceInfo, getFirmwareInfo, requestUnlock, isUnlocked, getUnlockFailure, unlockFailureMessage, readMacrosFromDevice, adoptExistingBleConnection, onDeviceDisconnect, onDeviceReconnect, onActiveLayerChange, onKeyInputEvent, subscribeToInput, getRuntimeState, setKeyboardLayout, getBehaviorDisplayName, getCombosFromDevice, writeCombosToDevice, verifyDeviceState } from './services/usbService';
+import { ensureMacrosOnDevice, verifyMacrosOnDevice, isConnected, readKeymap, writeKeymapToDevice, saveChanges, setLayerProps, getDeviceInfo, getFirmwareInfo, requestUnlock, isUnlocked, getUnlockFailure, unlockFailureMessage, readMacrosFromDevice, adoptExistingBleConnection, onDeviceDisconnect, onDeviceReconnect, onActiveLayerChange, onKeyInputEvent, subscribeToInput, getRuntimeState, setKeyboardLayout, getBehaviorDisplayName, getCombosFromDevice, writeCombosToDevice, verifyDeviceState } from './services/usbService';
 import { saveWriteBackup } from './services/writeBackups';
 import type { KeymapProject } from './types';
 import { isFirmwareVersionSupported, checkFirmwareUpdate, analyzeFirmwareConsistency, MIN_SUPPORTED_FW_VERSION } from './services/firmwareCompat';
@@ -245,7 +245,18 @@ function App() {
       // Load firmware macros via RPC (with step data)
       const deviceMacros = await readMacrosFromDevice();
       if (deviceMacros && deviceMacros.length > 0) {
-        project.macros = deviceMacros;
+        // Merge, never replace: a macro that exists only in the editor (not
+        // yet written, or wiped from the device by a factory reset) must
+        // survive a Read. Replacing the list here silently deleted such
+        // macros -- and with them the only copy of their steps.
+        const onDevice = new Set(deviceMacros.map(m => m.name));
+        const editorOnly = project.macros
+          .filter(m => !onDevice.has(m.name))
+          .map(m => ({ ...m, deviceId: undefined }));
+        project.macros = [...deviceMacros, ...editorOnly];
+        if (editorOnly.length > 0) {
+          debugLog('WRN', 'Editor', `Macros kept from the editor but absent on the device: ${editorOnly.map(m => m.name).join(', ')} -- they will be written on the next Write of a key that uses them`);
+        }
         // Re-map macro key labels: DT name → editor name
         for (const layer of project.layers) {
           for (const key of layer.keys) {
@@ -438,30 +449,47 @@ function App() {
                 return;
               }
             }
-            // Macros referenced by the keys about to be written must exist on
-            // the device first, or those bindings fail with INVALID_BEHAVIOR.
+            // Every macro referenced anywhere in the keymap must exist on the
+            // device before bindings are written, not just the ones behind
+            // dirty keys: after a factory reset the keys pointing at a wiped
+            // macro are not dirty, yet their bindings on the device are dead.
             const referencedMacros = new Set<string>();
-            for (const [arrayIdx, layer] of store.layers.entries()) {
+            const keysByMacro = new Map<string, string[]>();
+            for (const layer of store.layers) {
               for (const key of layer.keys) {
-                // Dirty keys are tracked under either the layer id or its
-                // array position (same two forms writeKeymapToDevice accepts).
-                if (!store.dirtyKeys.has(`${layer.index}:${key.id}`) && !store.dirtyKeys.has(`${arrayIdx}:${key.id}`)) continue;
                 const kc = key.binding.keyCode;
-                if (kc?.startsWith('&') && kc.length > 1) referencedMacros.add(kc.substring(1));
+                if (!kc?.startsWith('&') || kc.length < 2) continue;
+                const name = kc.substring(1);
+                referencedMacros.add(name);
+                keysByMacro.set(name, [...(keysByMacro.get(name) ?? []), `${layer.index}:${key.id}`]);
               }
             }
+            const extraDirty = new Set<string>();
+            const macroSlotsToVerify: Record<string, number> = {};
             if (referencedMacros.size > 0) {
               showToast('書き込み処理中... (0/5 マクロ確認)', 'progress', { persist: true });
               const ensured = await ensureMacrosOnDevice(store.macros, referencedMacros);
               for (const [name, deviceId] of Object.entries(ensured.assigned)) {
                 const idx = store.macros.findIndex(m => m.name === name);
                 if (idx >= 0) store.updateMacro(idx, { deviceId });
-                debugLog('INF', 'Editor', `Macro "${name}" written to device slot ${deviceId}`);
+                macroSlotsToVerify[name] = deviceId;
+                // A macro that just got (re)written has a slot id the device
+                // bindings do not know yet: rewrite every key that uses it.
+                for (const k of keysByMacro.get(name) ?? []) extraDirty.add(k);
+                debugLog('INF', 'Editor', `Macro "${name}" written to device slot ${deviceId}; ${(keysByMacro.get(name) ?? []).length} key(s) will be rewritten`);
               }
               if (ensured.failed.length > 0) {
                 debugLog('ERR', 'Editor', `Write aborted: macro(s) could not be put on the device: ${ensured.failed.join(', ')}`);
                 showToast(`マクロ「${ensured.failed.join('」「')}」を実機に書き込めないため中止しました（>_コンソール参照）`, 'error');
                 return;
+              }
+              if (Object.keys(macroSlotsToVerify).length > 0) {
+                const missing = await verifyMacrosOnDevice(macroSlotsToVerify);
+                if (missing.length > 0) {
+                  debugLog('ERR', 'Editor', `Write aborted: device acknowledged but did not keep macro(s): ${missing.join(', ')}`);
+                  showToast(`マクロ「${missing.join('」「')}」が実機に残りませんでした。書き込みを中止します（>_コンソール参照）`, 'error');
+                  return;
+                }
               }
             }
             // Auto-backup: what's on the device right now is (as far as we
@@ -480,7 +508,10 @@ function App() {
             debugLog('INF', 'Editor', `Layer names and LED colors written (${store.layers.length} layers)`);
             // Write key bindings
             showToast('書き込み処理中... (2/5 キー割り当て)', 'progress', { persist: true });
-            const keymapResult = await writeKeymapToDevice(store.layers, store.dirtyKeys);
+            const keymapResult = await writeKeymapToDevice(
+              store.layers,
+              extraDirty.size > 0 ? new Set([...store.dirtyKeys, ...extraDirty]) : store.dirtyKeys,
+            );
             // Combos persist themselves per-RPC (no separate save step, unlike
             // the keymap subsystem's saveChanges() below) -- write regardless
             // of keymap dirty-key tracking, same as layer names/colors above.

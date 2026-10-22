@@ -2215,6 +2215,20 @@ export function registerMacroDeviceId(name: string, deviceId: number) {
 
 let macroTableLoaded = false;
 
+// Read the given slots back and confirm each holds real steps. A setMacro
+// that was acknowledged but never landed (or a Write that skipped the macro
+// step entirely) otherwise goes unnoticed until the key is pressed.
+export async function verifyMacrosOnDevice(slots: Record<string, number>): Promise<string[]> {
+  const missing: string[] = [];
+  for (const [name, id] of Object.entries(slots)) {
+    const data = await getMacroData(id);
+    const real = !!data && data.steps.some(s => s.action !== 'waitMs' && s.value !== 0);
+    if (!real) missing.push(name);
+    debugLog(real ? 'INF' : 'ERR', 'USB', `Macro "${name}" slot ${id}: ${real ? `${data!.steps.length} steps on device` : 'EMPTY on device'}`);
+  }
+  return missing;
+}
+
 // Make sure every editor macro in `names` actually exists on the device
 // before the keymap bindings that point at it are written. Without this a
 // key bound to a macro that was never written (or was wiped by a factory
