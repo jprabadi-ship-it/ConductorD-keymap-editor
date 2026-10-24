@@ -46,15 +46,55 @@ let latestLayerState = null // highestLayer/pressed/battery/connected -- small, 
 let popupConnType = null // transport the popup itself holds, from its live relay
 let popupRestoreConnType = null // set across a watchdog reload, consumed on load
 
+// The Studio layout is a single centered column capped at 820px; the header
+// row is what sets the real width floor (~1300px at 100%, ~1170px at the 90%
+// launch zoom below). 1320x900 shows the header on one line, the whole
+// keyboard, and about eight layer rows -- on a QHD/5K display that is a
+// window, not the wall-to-wall sheet filling the work area used to be.
+const DEFAULT_WINDOW = { width: 1320, height: 900 }
+const MIN_WINDOW = { width: 1000, height: 640 }
+const BOUNDS_FILE = path.join(app.getPath('userData'), 'window-bounds.json')
+
+function loadSavedBounds() {
+  try {
+    const b = JSON.parse(fs.readFileSync(BOUNDS_FILE, 'utf8'))
+    if (![b.x, b.y, b.width, b.height].every(Number.isFinite)) return null
+    // Only trust it if it still lands on a display that exists today.
+    const d = screen.getDisplayMatching(b)
+    const wa = d.workArea
+    const visible = b.x < wa.x + wa.width - 100 && b.x + b.width > wa.x + 100 &&
+      b.y < wa.y + wa.height - 100 && b.y + b.height > wa.y + 50
+    return visible ? b : null
+  } catch { return null }
+}
+
+function saveBounds(w) {
+  try {
+    if (w.isMinimized() || w.isFullScreen()) return
+    fs.writeFileSync(BOUNDS_FILE, JSON.stringify(w.getBounds()))
+  } catch { /* best effort */ }
+}
+
+function defaultBounds() {
+  // Open where the user is looking: the display under the cursor, which
+  // is also where the minimap they clicked "Editorへ" on lives.
+  const d = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
+  const wa = d.workArea
+  const width = Math.min(DEFAULT_WINDOW.width, Math.round(wa.width * 0.9))
+  const height = Math.min(DEFAULT_WINDOW.height, Math.round(wa.height * 0.9))
+  return {
+    width, height,
+    x: Math.round(wa.x + (wa.width - width) / 2),
+    y: Math.round(wa.y + (wa.height - height) / 2),
+  }
+}
+
 function createWindow() {
-  // Launch filling the screen's usable area (menu bar/Dock excluded) rather
-  // than a fixed 1400x900 -- on an FHD (1920x1080) display that's roughly
-  // 1920x1055, matching the 90% zoom above which was tuned for exactly that
-  // size. Falls back gracefully to whatever the actual display offers.
-  const { width, height } = screen.getPrimaryDisplay().workAreaSize
+  const bounds = loadSavedBounds() || defaultBounds()
   win = new BrowserWindow({
-    width,
-    height,
+    ...bounds,
+    minWidth: MIN_WINDOW.width,
+    minHeight: MIN_WINDOW.height,
     title: 'ConductorD Studio',
     webPreferences: {
       contextIsolation: true,
@@ -92,6 +132,15 @@ function createWindow() {
     event.preventDefault()
     win.hide()
   })
+
+  // Remember where the user put it. Debounced: resize fires per pixel.
+  let boundsTimer = null
+  const remember = () => {
+    clearTimeout(boundsTimer)
+    boundsTimer = setTimeout(() => saveBounds(win), 400)
+  }
+  win.on('resize', remember)
+  win.on('move', remember)
 
   return win
 }
