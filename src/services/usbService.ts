@@ -2099,6 +2099,8 @@ export interface DeviceMacroData {
   id: number;
   name: string;
   steps: DeviceMacroStep[];
+  waitMs?: number;
+  tapMs?: number;
 }
 
 export async function listAllMacros(): Promise<{ macros: DeviceMacroSummary[]; maxMacros: number } | null> {
@@ -2141,14 +2143,14 @@ export async function getMacroData(macroId: number): Promise<DeviceMacroData | n
       return { action: 'keyPress' as const, value };
     });
     debugLog('INF', 'USB', `getMacroData(${macroId}): "${macro.name}", ${steps.length} steps: ${steps.map(s => `${s.action}=0x${s.value.toString(16)}`).join(', ')}`);
-    return { id: macro.id ?? macroId, name: macro.name ?? '', steps };
+    return { id: macro.id ?? macroId, name: macro.name ?? '', steps, waitMs: macro.waitMs ?? 0, tapMs: macro.tapMs ?? 0 };
   } catch (e: any) {
     debugLog('ERR', 'USB', `getMacroData failed: ${e.message}`);
     return null;
   }
 }
 
-export async function setMacro(macroId: number, name: string, steps: DeviceMacroStep[]): Promise<boolean> {
+export async function setMacro(macroId: number, name: string, steps: DeviceMacroStep[], timing?: { waitMs: number; tapMs: number }): Promise<boolean> {
   const protoSteps = steps.map(s => {
     const actionType = s.action === 'keyRelease' ? 2 : s.action === 'waitMs' ? 3 : 1;
     return { actionType, value: s.value };
@@ -2165,7 +2167,7 @@ export async function setMacro(macroId: number, name: string, steps: DeviceMacro
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
       const resp = await sendRequest({
-        macros: { setMacro: { macro: { id: macroId, name, steps: protoSteps } } }
+        macros: { setMacro: { macro: { id: macroId, name, steps: protoSteps, waitMs: timing?.waitMs ?? 0, tapMs: timing?.tapMs ?? 0 } } }
       }, 20000);
       const result = resp.macros?.setMacro;
       if (result === 0 || result === 'SET_MACRO_RESP_OK') {
@@ -2344,7 +2346,7 @@ export async function readMacrosFromDevice(): Promise<import('../types').Macro[]
         }
       }
 
-      macros.push({ name: data.name, waitMs: 30, tapMs: 30, bindings: merged, deviceId: summary.id });
+      macros.push({ name: data.name, waitMs: data.waitMs || 30, tapMs: data.tapMs || 30, bindings: merged, deviceId: summary.id });
     }
     macroNameToDeviceId = {};
     for (const m of macros) {
@@ -2403,7 +2405,7 @@ export async function writeMacroToDevice(macroId: number, macro: import('../type
     return false;
   }
 
-  return setMacro(macroId, macro.name, steps);
+  return setMacro(macroId, macro.name, steps, { waitMs: macro.waitMs, tapMs: macro.tapMs });
 }
 
 const ZMK_TO_USAGE: Record<string, number> = {

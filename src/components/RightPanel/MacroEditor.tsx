@@ -239,7 +239,7 @@ export function MacroEditor({ store }: Props) {
           </label>
         </div>
         <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>
-          Wait: ステップ間のデフォルト待ち時間 / Tap: キー押下の持続時間
+          Wait: ステップ間の待ち時間 / Tap: キー押下の持続時間（Writeで実機に保存されます。FW 2026-10-27以降）
         </div>
       </div>
 
