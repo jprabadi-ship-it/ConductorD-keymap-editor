@@ -2954,7 +2954,22 @@ export async function writeKeymapToDevice(layers: Layer[], dirtyKeys?: Set<strin
       const rawKey = `${layer.index}:${posId}`;
       const raw = rawBindings[rawKey];
       const layerArrayIdx = layers.indexOf(layer);
-      const isDirty = dirtyKeys ? (dirtyKeys.has(rawKey) || dirtyKeys.has(`${layerArrayIdx}:${posId}`)) : true;
+      let isDirty = dirtyKeys ? (dirtyKeys.has(rawKey) || dirtyKeys.has(`${layerArrayIdx}:${posId}`)) : true;
+
+      // A key that points at a macro is also stale when the device's own
+      // binding (as of the last Read) does not reference that macro's slot --
+      // e.g. the macro was (re)written to a slot after the key was last
+      // written, or a factory reset left &none behind. The dirty set only
+      // knows about edits made in the editor, so it misses that case (seen
+      // live on hardware: layer 6 position 26 resolving to "none" while the
+      // editor showed &m_master).
+      if (!isDirty && key.binding.keyCode?.startsWith('&') && key.binding.keyCode.length > 1) {
+        const expected = macroNameToDeviceId[key.binding.keyCode.substring(1)];
+        if (expected !== undefined && raw?.behaviorId !== expected) {
+          debugLog('INF', 'USB', `  ${posId}@L${layer.index}: device binding (beh=${raw?.behaviorId ?? '?'}) does not reference macro slot ${expected} -- rewriting`);
+          isDirty = true;
+        }
+      }
 
       // If key wasn't modified by user, skip it entirely
       if (!isDirty) {
