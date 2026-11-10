@@ -105,10 +105,11 @@ cp "$DMG_SRC" "$DATED_DMG"
 cp "$DMG_SRC" "$LATEST_DMG"
 
 echo "==> Creating GitHub release ${TAG}"
+NOTES=$(node scripts/release-notes.mjs "$VERSION")
 gh release create "$TAG" "$VERSIONED_DMG" "$DATED_DMG" "$LATEST_DMG" \
   --repo "$REPO" \
   --title "$TAG" \
-  --notes "Built ${STAMP} JST. See in-app Version History (Header > Changelog) for details."
+  --notes "$NOTES"
 
 echo "==> Verifying the versioned download URL resolves"
 DOWNLOAD_URL="https://github.com/${REPO}/releases/latest/download/ConductorD-Studio-${VERSION}-mac-arm64.dmg"
