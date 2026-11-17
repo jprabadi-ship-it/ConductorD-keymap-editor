@@ -284,7 +284,7 @@ export function LayerPopup() {
       const [result, combos, aml, runtime] = await Promise.all([
         readKeymap(), getCombosFromDevice(), getAutoLayer(), getRuntimeState(),
       ]);
-      if (!result?.layers) return;
+      if (!result?.layers) return false;
 
       const layers: Layer[] = result.layers.map((dl: any) => ({
         name: dl.name,
@@ -304,14 +304,15 @@ export function LayerPopup() {
         battery: runtime ? { l: runtime.peripheralL, r: runtime.peripheralR, chargingL: runtime.chargingL, chargingR: runtime.chargingR } : null,
       });
       setConnType(type);
+      return true;
   };
 
   const handleConnect = async (type: 'usb' | 'bluetooth', options?: { silent?: boolean }) => {
     setConnecting(type);
     try {
       const ok = type === 'usb' ? await connectUsb(options) : await connectBle();
-      if (!ok) return;
-      await loadConnectedState(type);
+      if (!ok) return false;
+      return await loadConnectedState(type);
     } finally {
       setConnecting(null);
     }
@@ -320,6 +321,20 @@ export function LayerPopup() {
   // handleConnect (which closes over fresh state setters each render).
   const handleConnectRef = useRef(handleConnect);
   useEffect(() => { handleConnectRef.current = handleConnect; });
+
+  // Entry points for the tray menu's "USBで接続 / BLEで接続 / 切断": the main
+  // process calls these in this (possibly hidden) renderer.
+  useEffect(() => {
+    (window as any).__conductorTray = {
+      connect: (type: 'usb' | 'bluetooth') => handleConnectRef.current(type),
+      disconnect: async () => {
+        if (connType === 'bluetooth') await disconnectBle();
+        else if (connType === 'usb') await disconnectUsb();
+        setLocalConn(EMPTY_LOCAL_CONNECTION);
+        setConnType(null);
+      },
+    };
+  });
 
   // One native BLE link lives in the main process, so if the Studio window
   // already opened it, join that instead of sitting here showing

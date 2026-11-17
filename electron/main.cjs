@@ -1,4 +1,4 @@
-const { app, BrowserWindow, session, dialog, Tray, Menu, nativeImage, ipcMain, screen, shell } = require('electron')
+const { app, BrowserWindow, session, dialog, Tray, Menu, nativeImage, ipcMain, screen, shell, Notification } = require('electron')
 const path = require('node:path')
 const os = require('node:os')
 const { execFile } = require('node:child_process')
@@ -196,6 +196,9 @@ function createPopupWindow() {
       nodeIntegration: false,
       sandbox: true,
       preload: preloadPath,
+      // This renderer also owns the tray-initiated connection while the
+      // minimap stays hidden, so its timers must not be throttled.
+      backgroundThrottling: false,
     },
   })
 
@@ -350,8 +353,76 @@ async function setBuiltInKeyboardDisabled(disabled) {
   builtInKeyboardDisabled = disabled
 }
 
+// Connect/disconnect from the tray without showing the minimap: the hidden
+// minimap renderer owns the connection. userGesture=true is what lets
+// navigator.serial.requestPort() run without a real click.
+function runInPopup(code) {
+  if (!popupWin) createPopupWindow()
+  const wc = popupWin.webContents
+  const run = () => wc.executeJavaScript(code, true)
+  if (!wc.isLoading()) return run()
+  return new Promise((resolve, reject) => {
+    wc.once('did-finish-load', () => run().then(resolve, reject))
+  })
+}
+
+// Which transport a tray-initiated connect is currently working on, so the
+// menu can say so instead of offering a second attempt on top of it.
+let trayConnecting = null
+
+async function trayConnect(type) {
+  if (trayConnecting) return
+  trayConnecting = type
+  const name = type === 'usb' ? 'USB' : 'BLE'
+  let ok = false
+  try {
+    ok = await runInPopup(`window.__conductorTray?.connect(${JSON.stringify(type)})`)
+  } catch (e) {
+    console.error('Tray connect failed:', e)
+  } finally {
+    trayConnecting = null
+  }
+  // With the minimap hidden there is nothing on screen to show a failure;
+  // success shows up as the battery readout next to the tray icon.
+  if (!ok && Notification.isSupported()) {
+    new Notification({
+      title: 'ConductorD Studio',
+      body: `${name}で接続できませんでした。`,
+      silent: true,
+    }).show()
+  }
+}
+
+function trayConnectionItems() {
+  if (trayConnecting) {
+    return [{ label: `${trayConnecting === 'usb' ? 'USB' : 'BLE'}に接続しています…`, enabled: false }]
+  }
+  if (popupConnType) {
+    return [
+      { label: `接続中 (${popupConnType === 'usb' ? 'USB' : 'BLE'})`, enabled: false },
+      {
+        label: '切断',
+        click: () => runInPopup('window.__conductorTray?.disconnect()')
+          .catch((e) => console.error('Tray disconnect failed:', e)),
+      },
+    ]
+  }
+  // The Studio window holds the link itself (it takes the port over from
+  // the minimap while it is connected); a second attempt here would only
+  // fail against the port it has open.
+  if (latestLayerState?.connected && win && !win.isDestroyed()) {
+    return [{ label: '接続中 (Studioウィンドウ)', enabled: false }]
+  }
+  return [
+    { label: 'USBで接続', click: () => trayConnect('usb') },
+    { label: 'BLEで接続', click: () => trayConnect('bluetooth') },
+  ]
+}
+
 function buildTrayMenu() {
   return Menu.buildFromTemplate([
+    ...trayConnectionItems(),
+    { type: 'separator' },
     {
       label: 'Show ConductorD Studio',
       click: () => {
@@ -892,6 +963,9 @@ ipcMain.on('adjust-popup-opacity', (_event, delta) => {
 function pickFromDialog(webContents, opts, cancelIndex) {
   const requester = webContents ? BrowserWindow.fromWebContents(webContents) : null
   const visible = [requester, win, popupWin].find((w) => w && !w.isDestroyed() && w.isVisible())
+  // No visible window (connecting from the tray): a parentless dialog of a
+  // Dock-less app can open behind whatever is frontmost, so step forward.
+  if (!visible) app.focus({ steal: true })
   const promise = visible ? dialog.showMessageBox(visible, opts) : dialog.showMessageBox(opts)
   return promise.then((r) => r.response).catch((e) => {
     console.error('device picker failed:', e)
@@ -974,6 +1048,17 @@ function wireSerialPermissions(ses) {
 
     if (portList.length <= 1) {
       callback(portList.length === 1 ? portList[0].portId : '')
+      return
+    }
+
+    // Exactly one port carries ZMK's USB identity: that is the keyboard, and
+    // everything else in the list is an unrelated device, so there is
+    // nothing to ask. Two or more (debug firmware's log port, dongle + R
+    // plugged in together) still need the user to choose.
+    const zmkPorts = portList.filter((p) =>
+      usbIdNumber(p.vendorId) === ZMK_USB_VID && usbIdNumber(p.productId) === ZMK_USB_PID)
+    if (zmkPorts.length === 1) {
+      callback(zmkPorts[0].portId)
       return
     }
 
@@ -1072,10 +1157,10 @@ app.whenReady().then(() => {
   if (process.platform === 'darwin') app.dock.hide()
 
   createTray()
-  // Day-to-day usage is the minimap, not the editor: launch straight into
-  // it. The Studio window is created lazily from the minimap's "Editorへ"
-  // button or the tray menu.
-  showPopup()
+  // The minimap no longer opens at launch: connecting happens from the
+  // tray menu. Its renderer is still created (hidden) because it owns that
+  // connection and feeds the tray battery title.
+  createPopupWindow()
 
   app.on('activate', () => toggleWindow())
 })
