@@ -116,8 +116,8 @@ function buildDiagnosticsText(data: DiagnosticsData): string {
   if (data.runtime?.topology !== 'standalone') {
     lines.push(`Dongle: ${batteryText(data.runtime?.central)}${data.runtime?.charging ? ' charging' : ''}`);
   }
-  lines.push(`R: ${batteryText(data.runtime?.peripheralR)}${data.runtime?.topology === 'standalone' && data.runtime?.charging ? ' charging' : ''} (${linkText(data.runtime?.peripheralR, data.runtime?.peripheralRConnected, fwSupportsConnectedFlags)})`);
-  lines.push(`L: ${batteryText(data.runtime?.peripheralL)} (${linkText(data.runtime?.peripheralL, data.runtime?.peripheralLConnected, fwSupportsConnectedFlags)})`);
+  lines.push(`R: ${batteryText(data.runtime?.peripheralR)}${data.runtime?.chargingR ? ' charging' : ''} (${linkText(data.runtime?.peripheralR, data.runtime?.peripheralRConnected, fwSupportsConnectedFlags)})`);
+  lines.push(`L: ${batteryText(data.runtime?.peripheralL)}${data.runtime?.chargingL ? ' charging' : ''} (${linkText(data.runtime?.peripheralL, data.runtime?.peripheralLConnected, fwSupportsConnectedFlags)})`);
   lines.push(`BLE Active: ${data.bleProfiles?.activeIndex ?? '--'}`);
   lines.push(`USB Active: ${data.usbSlots?.activeIndex ?? '--'}`);
   lines.push('');
@@ -373,8 +373,8 @@ export function DiagnosticsPanel({ store, onOpenFirmwareWizard }: { store?: Keym
             {data.runtime?.topology !== 'standalone' && (
               <Row label="Dongle" value={`${batteryText(data.runtime?.central)}${data.runtime?.charging ? ' charging' : ''}`} />
             )}
-            <Row label="R" value={`${batteryText(data.runtime?.peripheralR)}${data.runtime?.topology === 'standalone' && data.runtime?.charging ? ' charging' : ''} (${linkText(data.runtime?.peripheralR, data.runtime?.peripheralRConnected, fwSupportsConnectedFlags)})`} />
-            <Row label="L" value={`${batteryText(data.runtime?.peripheralL)} (${linkText(data.runtime?.peripheralL, data.runtime?.peripheralLConnected, fwSupportsConnectedFlags)})`} />
+            <Row label="R" value={`${batteryText(data.runtime?.peripheralR)}${data.runtime?.chargingR ? ' charging' : ''} (${linkText(data.runtime?.peripheralR, data.runtime?.peripheralRConnected, fwSupportsConnectedFlags)})`} />
+            <Row label="L" value={`${batteryText(data.runtime?.peripheralL)}${data.runtime?.chargingL ? ' charging' : ''} (${linkText(data.runtime?.peripheralL, data.runtime?.peripheralLConnected, fwSupportsConnectedFlags)})`} />
             <Row label="BLE Active" value={String(data.bleProfiles?.activeIndex ?? '--')} />
             <Row label="USB Active" value={String(data.usbSlots?.activeIndex ?? '--')} />
           </div>

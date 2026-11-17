@@ -588,7 +588,15 @@ export interface RuntimeBatteryState {
   central: number | null; // dongle; null = unknown (255 on the wire) or standalone
   peripheralR: number | null; // slot 0 -- has the trackball
   peripheralL: number | null; // slot 1
+  // The central's own flag as sent on the wire: USB power on the dongle,
+  // charger-IC state on a standalone R. Prefer chargingR/chargingL below.
   charging: boolean;
+  // Per-half "charger IC is charging", already remapped for the topology.
+  // Needs firmware from 2026-11-17 on BOTH ends (the peripheral reports it,
+  // the central relays it); older firmware just reads false for a
+  // peripheral, and on a standalone R falls back to "USB powered".
+  chargingR: boolean;
+  chargingL: boolean;
   highestLayer: number;
   activeOs?: number;
   osProfileEnabled?: boolean;
@@ -629,6 +637,8 @@ export async function getRuntimeState(): Promise<RuntimeBatteryState | null> {
         peripheralR: normalizeBattery(rs.batteryCentral),
         peripheralL: normalizeBattery(rs.batteryPeripheral),
         charging: !!rs.charging,
+        chargingR: !!rs.charging, // R is the central here
+        chargingL: !!rs.chargingPeripheral, // slot 0 = L here
         highestLayer: rs.highestLayer ?? 0,
         activeOs: rs.activeOs ?? 0,
         osProfileEnabled: !!rs.osProfileEnabled,
@@ -643,6 +653,8 @@ export async function getRuntimeState(): Promise<RuntimeBatteryState | null> {
       peripheralR: normalizeBattery(rs.batteryPeripheral),
       peripheralL: normalizeBattery(rs.batteryPeripheralL),
       charging: !!rs.charging,
+      chargingR: !!rs.chargingPeripheral,
+      chargingL: !!rs.chargingPeripheralL,
       highestLayer: rs.highestLayer ?? 0,
       activeOs: rs.activeOs ?? 0,
       osProfileEnabled: !!rs.osProfileEnabled,
