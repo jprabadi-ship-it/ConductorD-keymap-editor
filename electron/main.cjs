@@ -55,6 +55,24 @@ const DEFAULT_WINDOW = { width: 1320, height: 900 }
 const MIN_WINDOW = { width: 1000, height: 640 }
 const BOUNDS_FILE = path.join(app.getPath('userData'), 'window-bounds.json')
 
+// The transport of the last connection the tray/minimap made itself, so
+// the next launch can reconnect the same way without being asked.
+const LAST_CONNECTION_FILE = path.join(app.getPath('userData'), 'last-connection.json')
+let lastConnectionType = null
+function loadLastConnectionType() {
+  try {
+    const t = JSON.parse(fs.readFileSync(LAST_CONNECTION_FILE, 'utf8'))?.type
+    lastConnectionType = t === 'usb' || t === 'bluetooth' ? t : null
+  } catch { lastConnectionType = null }
+  return lastConnectionType
+}
+function rememberConnectionType(type) {
+  if (!type || type === lastConnectionType) return
+  lastConnectionType = type
+  fs.promises.writeFile(LAST_CONNECTION_FILE, JSON.stringify({ type }))
+    .catch((e) => console.error('Failed to save the last connection type:', e))
+}
+
 function loadSavedBounds() {
   try {
     const b = JSON.parse(fs.readFileSync(BOUNDS_FILE, 'utf8'))
@@ -370,21 +388,35 @@ function runInPopup(code) {
 // menu can say so instead of offering a second attempt on top of it.
 let trayConnecting = null
 
-async function trayConnect(type) {
+// True while a launch-time auto connect is choosing its serial port: that
+// attempt was not asked for just now, so it must never put up a dialog.
+let quietSerialPick = false
+
+// quiet = the launch-time auto connect: no port dialog, no failure notice.
+async function trayConnect(type, { quiet = false } = {}) {
   if (trayConnecting) return
   trayConnecting = type
   const name = type === 'usb' ? 'USB' : 'BLE'
   let ok = false
   try {
-    ok = await runInPopup(`window.__conductorTray?.connect(${JSON.stringify(type)})`)
+    quietSerialPick = quiet
+    // Right after launch the page can be loaded before React has mounted
+    // and published the entry point, so give it a moment to appear. (The
+    // synthetic user activation lasts a few seconds, well beyond this.)
+    ok = await runInPopup(`(async () => {
+      for (let i = 0; i < 30 && !window.__conductorTray; i++) await new Promise((r) => setTimeout(r, 100))
+      return window.__conductorTray?.connect(${JSON.stringify(type)})
+    })()`)
   } catch (e) {
     console.error('Tray connect failed:', e)
   } finally {
+    quietSerialPick = false
     trayConnecting = null
   }
+  if (quiet) console.log(`[auto-connect] ${name}: ${ok ? 'connected' : 'not connected'}`)
   // With the minimap hidden there is nothing on screen to show a failure;
   // success shows up as the battery readout next to the tray icon.
-  if (!ok && Notification.isSupported()) {
+  if (!ok && !quiet && Notification.isSupported()) {
     new Notification({
       title: 'ConductorD Studio',
       body: `${name}で接続できませんでした。`,
@@ -554,7 +586,10 @@ ipcMain.on('layer-keymap', (event, keymap) => {
 
 ipcMain.on('layer-state', (event, state) => {
   latestLayerState = state
-  if (fromPopup(event)) popupConnType = state?.connected ? (state?.connType ?? null) : null
+  if (fromPopup(event)) {
+    popupConnType = state?.connected ? (state?.connType ?? null) : null
+    rememberConnectionType(popupConnType)
+  }
   else if (popupWin) popupWin.webContents.send('layer-state', state)
   updateTrayBatteryIcon(state?.battery)
 })
@@ -1046,6 +1081,17 @@ function wireSerialPermissions(ses) {
   ses.on('select-serial-port', (event, portList, webContents, callback) => {
     event.preventDefault()
 
+    const zmkPorts = portList.filter((p) =>
+      usbIdNumber(p.vendorId) === ZMK_USB_VID && usbIdNumber(p.productId) === ZMK_USB_PID)
+
+    // Launch-time auto connect: take the keyboard if it is unambiguous,
+    // otherwise give up silently (the tray menu is there for a manual try).
+    if (quietSerialPick) {
+      console.log(`[auto-connect] serial ports: ${portList.length}, Conductor candidates: ${zmkPorts.length}`)
+      callback(zmkPorts.length === 1 ? zmkPorts[0].portId : '')
+      return
+    }
+
     if (portList.length <= 1) {
       callback(portList.length === 1 ? portList[0].portId : '')
       return
@@ -1055,8 +1101,6 @@ function wireSerialPermissions(ses) {
     // everything else in the list is an unrelated device, so there is
     // nothing to ask. Two or more (debug firmware's log port, dongle + R
     // plugged in together) still need the user to choose.
-    const zmkPorts = portList.filter((p) =>
-      usbIdNumber(p.vendorId) === ZMK_USB_VID && usbIdNumber(p.productId) === ZMK_USB_PID)
     if (zmkPorts.length === 1) {
       callback(zmkPorts[0].portId)
       return
@@ -1161,6 +1205,10 @@ app.whenReady().then(() => {
   // tray menu. Its renderer is still created (hidden) because it owns that
   // connection and feeds the tray battery title.
   createPopupWindow()
+  // Reconnect the way the last session was connected, so the battery
+  // readout simply appears next to the tray icon after launch.
+  const lastType = loadLastConnectionType()
+  if (lastType) trayConnect(lastType, { quiet: true })
 
   app.on('activate', () => toggleWindow())
 })
