@@ -396,15 +396,10 @@ export function LayerPopup() {
     (window as any).electronAPI?.adjustPopupOpacity?.(-e.deltaY / 800);
   };
 
-  // The ❌ acts like a window close button: cut this popup's own connection
-  // if it has one, then dismiss the minimap (reopen from the tray menu).
-  const handleClose = async () => {
-    if (connType === 'bluetooth') await disconnectBle();
-    else if (connType === 'usb') await disconnectUsb();
-    // onDeviceDisconnect also fires for real unplugs; calling the reset here
-    // too keeps the UI immediate even if that callback is delayed.
-    setLocalConn(EMPTY_LOCAL_CONNECTION);
-    setConnType(null);
+  // The ❌ only dismisses the minimap (reopen from the tray menu). The
+  // connection stays up: this renderer keeps owning it while hidden, and
+  // disconnecting is the tray menu's "切断".
+  const handleClose = () => {
     (window as any).electronAPI?.hidePopup?.();
   };
 
@@ -455,7 +450,7 @@ export function LayerPopup() {
       <div className="layer-popup-content" ref={contentRef} style={{ transform: `scale(${scale})` }}>
         <div className="layer-popup-header layer-popup-drag">
           <button className="layer-popup-close" onClick={handleClose}
-            title={localConn.connected ? '切断してミニマップを閉じる' : 'ミニマップを閉じる'}>✕</button>
+            title="ミニマップを閉じる">✕</button>
           <span className="layer-popup-grip" title="ここを掴んで移動">⠿</span>
           <span className="led-dot" style={{ width: 10, height: 10, borderRadius: '50%', background: layer.ledColor }} />
           <span>{layer.name}</span>
