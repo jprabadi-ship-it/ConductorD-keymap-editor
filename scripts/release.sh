@@ -104,9 +104,21 @@ cp "$DMG_SRC" "$VERSIONED_DMG"
 cp "$DMG_SRC" "$DATED_DMG"
 cp "$DMG_SRC" "$LATEST_DMG"
 
+# The firmware download button points at THIS repo's latest release (the
+# firmware repo is private), so a release without the firmware zip would turn
+# that button into a 404 for everyone. Build it now and refuse to go on
+# without it.
+echo "==> Building the public firmware zip (uf2 only)"
+FW_ASSETS=()
+while IFS= read -r f; do FW_ASSETS+=("$f"); done < <(bash scripts/firmware-asset.sh)
+if [ "${#FW_ASSETS[@]}" -ne 2 ] || [ ! -f "${FW_ASSETS[0]}" ] || [ ! -f "${FW_ASSETS[1]}" ]; then
+  echo "ERROR: could not build the public firmware zip (see above). Not releasing: the latest release must always carry it." >&2
+  exit 1
+fi
+
 echo "==> Creating GitHub release ${TAG}"
 NOTES=$(node scripts/release-notes.mjs "$VERSION")
-gh release create "$TAG" "$VERSIONED_DMG" "$DATED_DMG" "$LATEST_DMG" \
+gh release create "$TAG" "$VERSIONED_DMG" "$DATED_DMG" "$LATEST_DMG" "${FW_ASSETS[@]}" \
   --repo "$REPO" \
   --title "$TAG" \
   --notes "$NOTES"
@@ -119,6 +131,14 @@ if [ "$HTTP_STATUS" != "302" ]; then
   echo "WARNING: expected a 302 redirect from ${DOWNLOAD_URL}, got ${HTTP_STATUS}. Check the release assets." >&2
 else
   echo "OK: ${DOWNLOAD_URL} resolves (302)"
+fi
+
+FW_URL="https://github.com/${REPO}/releases/latest/download/ConductorD-firmware-latest.zip"
+FW_STATUS=$(curl -sI -o /dev/null -w "%{http_code}" "$FW_URL")
+if [ "$FW_STATUS" != "302" ]; then
+  echo "WARNING: expected a 302 redirect from ${FW_URL}, got ${FW_STATUS}. The FW download button is broken until this is fixed (scripts/firmware-asset.sh --upload)." >&2
+else
+  echo "OK: ${FW_URL} resolves (302)"
 fi
 
 echo "==> Done: https://github.com/${REPO}/releases/tag/${TAG}"

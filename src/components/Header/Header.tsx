@@ -63,27 +63,32 @@ async function startMacAppDownload(e: React.MouseEvent) {
   e.preventDefault();
   window.location.href = await resolveMacAppDownloadUrl();
 }
-// Firmware is a separate repo/artifact from Studio itself, so unlike the Mac
-// app link above this isn't gated on !isElectron -- both builds need it.
-// The "firmware-latest" release is republished in place by conductor-dongle's
-// CI on every green push to a release/conductor-* branch (see build.yml's
-// "Publish Firmware Release" job). The zip's primary filename is now
-// date-stamped (ConductorD-firmware-latest-YYYYMMDD-HHMM.zip), but a fixed-
-// name copy is uploaded alongside it on every publish specifically so this
-// link keeps working -- direct one-click download, no release-page detour.
-const FIRMWARE_DOWNLOAD_URL = 'https://github.com/jprabadi-ship-it/conductor/releases/latest/download/ConductorD-firmware-latest.zip';
+// Firmware lives in a separate, PRIVATE repo, so its own release URL is a 404
+// for anyone not signed in to GitHub with access. Every Studio release here
+// (this repo is public) therefore carries a copy of the flashable firmware:
+// scripts/firmware-asset.sh repacks the private "firmware-latest" zip down to
+// the .uf2 files and release.sh attaches it. This link points at that copy,
+// so it works for any visitor, in both the web and the Electron build.
+const FIRMWARE_DOWNLOAD_URL = 'https://github.com/jprabadi-ship-it/ConductorD-keymap-editor/releases/latest/download/ConductorD-firmware-latest.zip';
+const DATED_FIRMWARE_RE = /^ConductorD-firmware-latest-\d{8}-\d{4}\.zip$/;
 
-// ...and the dated copy is the nicer one to keep, same as for the DMG. Unlike
-// Studio's own repo this one is private, so the browser can't ask the GitHub
-// API for the asset list (the web build's plain link only works at all
-// because the user's browser is signed in to github.com). The Electron build
-// can, via gh in the main process -- so the app gets the dated file and the
-// web build stays on the fixed name.
+// Same idea as the DMG: prefer the date-stamped copy (it says which build it
+// is once it sits in ~/Downloads), fall back to the fixed name.
+async function resolveFirmwareDownloadUrl(): Promise<string> {
+  try {
+    const res = await fetch(RELEASES_API_URL);
+    if (!res.ok) return FIRMWARE_DOWNLOAD_URL;
+    const release = await res.json();
+    const dated = (release.assets || []).find((a: { name?: string }) => DATED_FIRMWARE_RE.test(a.name || ''));
+    return dated?.browser_download_url || FIRMWARE_DOWNLOAD_URL;
+  } catch {
+    return FIRMWARE_DOWNLOAD_URL;
+  }
+}
+
 async function startFirmwareDownload(e: React.MouseEvent) {
-  const api = (window as { electronAPI?: { resolveFirmwareDownloadUrl?: () => Promise<string | null> } }).electronAPI;
-  if (!api?.resolveFirmwareDownloadUrl) return; // web build: follow the href
   e.preventDefault();
-  window.location.href = (await api.resolveFirmwareDownloadUrl()) || FIRMWARE_DOWNLOAD_URL;
+  window.location.href = await resolveFirmwareDownloadUrl();
 }
 
 // True auto-update (silent download+relaunch via electron-updater/Squirrel.Mac)
@@ -214,6 +219,7 @@ export function Header({ store, showConsole, onToggleConsole, usbConnected, conn
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {[
+                { v: '0.38.66.0', at: '2026-11-17 JST', changes: ['「FWダウンロード」を誰でも落とせる場所に変更。ファームウェアのリポジトリは非公開のため、これまでのリンクはGitHubにログインしていない人には404でした。書き込み用のuf2(R / L / ドングル / ドングルモード用R / リセット用)と短い説明書だけをまとめたzipを、公開しているこのStudioのリリースに毎回添付し、ボタンはそちらを指すようにしました。Web版・Macアプリ版とも、日付入りのファイル名で落ちてきます', 'リリース手順に組み込み済みで、zipを用意できない場合はリリース自体を中止します(最新リリースにzipが無いとリンクが切れるため)'] },
                 { v: '0.38.65.0', at: '2026-11-17 JST', changes: ['左右それぞれの「充電中(⚡)」を、メニューバーの電池表示(例: L93⚡ R90)とミニマップの電池バッジにも表示するように。v0.38.64ではStudioウィンドウの中にしか出しておらず、普段見ているメニューバー側では分からないままでした', 'ミニマップが自分で接続している時の電池・充電状態の更新間隔を30秒から10秒に短縮(ケーブルの抜き差しに表示が追従しやすいように)', '実機が返した充電フラグの生の値を、変化した時だけコンソールに記録するように([Battery] Charging flags from device: ...)。⚡が出ない時に、実機が報告していないのか表示側の問題なのかをすぐ判別できます'] },
                 { v: '0.38.64.0', at: '2026-11-17 JST', changes: ['電池表示の「充電中(⚡)」を左右それぞれに出すように。これまで分かるのは接続先本体(standaloneならR、ドングル運用ならドングル)がUSB給電されているかどうかの1つだけで、Lが充電中かどうかは実機から届いていませんでした。左右の本体がそれぞれ充電ICの状態を報告するようにし、ヘッダー・接続パネル・診断タブのL/Rに個別の⚡(緑)を表示します。「充電中」の意味も「USBが挿さっている」から「実際に充電している」に変わったので、満充電になると⚡は消えます', 'この表示には2026-11-17以降のファームウェアが、送る側と受ける側の両方に必要です(standalone運用ならLとR、ドングル運用ならドングル・R・L)。古いファームウェアのままでも従来通り動き、その場合ペリフェラル側の⚡は出ません'] },
                 { v: '0.38.63.0', at: '2026-10-27 JST', changes: ['マクロの「Wait(ms)/Tap(ms)」が実機に反映されるように。これまでこの2つの欄はUI上の表示だけで送信されておらず、実機側は常に既定値で動いていました。通信仕様(MacroSequence)にwait_ms/tap_msを追加し、Write(およびマクロ単体のWrite to Device)で保存、Readで読み戻します。反映には2026-10-27以降のファームウェアが必要です(旧FWでは従来通り無視されます)'] },
