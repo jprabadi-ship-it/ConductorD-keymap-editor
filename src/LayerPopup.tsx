@@ -20,6 +20,8 @@ interface LayerState {
 interface BatteryLevels {
   l: number | null;
   r: number | null;
+  chargingL?: boolean;
+  chargingR?: boolean;
 }
 
 // Physical anchor keys for the battery badges, one per hardware half.
@@ -45,12 +47,12 @@ const EMPTY_LOCAL_CONNECTION: LocalConnection = {
   connected: false, layers: [], combos: [], amlExcluded: [], highestLayer: 0, pressedPositions: [], battery: null,
 };
 
-function BatteryBadge({ label, value }: { label: string; value: number | null }) {
+function BatteryBadge({ label, value, charging }: { label: string; value: number | null; charging?: boolean }) {
   if (value === null) return null;
-  return <span className="minimap-batt">{label} {value}%</span>;
+  return <span className="minimap-batt">{label} {value}%{charging ? ' ⚡' : ''}</span>;
 }
 
-function renderHalf(layer: Layer, positions: KeyPosition[], comboMap: Map<string, string>, amlExcluded: string[], pressedKeyIds: Set<string>, className: string, battMap: Map<string, { label: string; value: number | null }>) {
+function renderHalf(layer: Layer, positions: KeyPosition[], comboMap: Map<string, string>, amlExcluded: string[], pressedKeyIds: Set<string>, className: string, battMap: Map<string, { label: string; value: number | null; charging?: boolean }>) {
   const maxCol = Math.max(...positions.map(p => p.col));
   const maxRow = Math.max(...positions.map(p => p.row));
   const cells = [];
@@ -76,7 +78,7 @@ function renderHalf(layer: Layer, positions: KeyPosition[], comboMap: Map<string
           ? (batt
               ? <div key={pos!.id} className="minimap-batt-anchor">
                   {button}
-                  <BatteryBadge label={batt.label} value={batt.value} />
+                  <BatteryBadge label={batt.label} value={batt.value} charging={batt.charging} />
                 </div>
               : button)
           : <div key={`empty-${className}-${row}-${col}`} />
@@ -186,9 +188,19 @@ export function LayerPopup() {
     const interval = setInterval(async () => {
       const runtime = await getRuntimeState();
       if (runtime) {
-        setLocalConn(c => ({ ...c, battery: { l: runtime.peripheralL, r: runtime.peripheralR } }));
+        // Same reference when nothing changed, so the tray relay effect does
+        // not fire on every tick.
+        setLocalConn(c => {
+          const b = c.battery;
+          return b && b.l === runtime.peripheralL && b.r === runtime.peripheralR
+            && !!b.chargingL === runtime.chargingL && !!b.chargingR === runtime.chargingR
+            ? c
+            : { ...c, battery: { l: runtime.peripheralL, r: runtime.peripheralR, chargingL: runtime.chargingL, chargingR: runtime.chargingR } };
+        });
       }
-    }, 30000);
+    // 10 s, not 30: the charging flag should follow the cable reasonably
+    // closely; the percentage itself barely moves in that time.
+    }, 10000);
     return () => clearInterval(interval);
   }, [localConn.connected]);
 
@@ -289,7 +301,7 @@ export function LayerPopup() {
         amlExcluded: aml ? positionsToKeyIds(aml.excludedPositions) : [],
         highestLayer: runtime?.highestLayer ?? 0,
         pressedPositions: [],
-        battery: runtime ? { l: runtime.peripheralL, r: runtime.peripheralR } : null,
+        battery: runtime ? { l: runtime.peripheralL, r: runtime.peripheralR, chargingL: runtime.chargingL, chargingR: runtime.chargingR } : null,
       });
       setConnType(type);
   };
@@ -417,10 +429,10 @@ export function LayerPopup() {
 
   const pressedKeyIds = new Set(effective!.pressedPositions.map(positionToKeyId).filter((id): id is string => id !== null));
 
-  const battMap = new Map<string, { label: string; value: number | null }>();
+  const battMap = new Map<string, { label: string; value: number | null; charging?: boolean }>();
   if (effective!.battery) {
-    battMap.set(BATTERY_ANCHOR_LEFT, { label: 'L', value: effective!.battery.l });
-    battMap.set(BATTERY_ANCHOR_RIGHT, { label: 'R', value: effective!.battery.r });
+    battMap.set(BATTERY_ANCHOR_LEFT, { label: 'L', value: effective!.battery.l, charging: effective!.battery.chargingL });
+    battMap.set(BATTERY_ANCHOR_RIGHT, { label: 'R', value: effective!.battery.r, charging: effective!.battery.chargingR });
   }
 
   return (

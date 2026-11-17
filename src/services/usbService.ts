@@ -37,6 +37,7 @@ type PendingRequest = {
 const pendingRequests = new Map<number, PendingRequest>();
 
 function resetConnectionState() {
+  lastChargingSig = '';
   macroTableLoaded = false;
   for (const pending of pendingRequests.values()) {
     clearTimeout(pending.timeout);
@@ -616,6 +617,8 @@ function normalizeBattery(v: number | undefined): number | null {
   return v === undefined || v === UNKNOWN_BATTERY ? null : v;
 }
 
+let lastChargingSig = '';
+
 export async function getRuntimeState(): Promise<RuntimeBatteryState | null> {
   try {
     // Topology detection needs the device name; fetch it once if a poll
@@ -626,6 +629,14 @@ export async function getRuntimeState(): Promise<RuntimeBatteryState | null> {
     const resp = await sendRequest({ core: { getRuntimeState: true } });
     const rs = resp.core?.getRuntimeState;
     if (!rs) return null;
+    // Log the raw charging flags whenever they change (not per poll): when a
+    // bolt is missing this says at once whether the device never reported it
+    // or the UI dropped it.
+    const chargingSig = `${!!rs.charging}/${!!rs.chargingPeripheral}/${!!rs.chargingPeripheralL}`;
+    if (chargingSig !== lastChargingSig) {
+      lastChargingSig = chargingSig;
+      debugLog('INF', 'Battery', `Charging flags from device: central=${!!rs.charging} slot0=${!!rs.chargingPeripheral} slot1=${!!rs.chargingPeripheralL}`);
+    }
     if (isStandaloneCentral()) {
       // Standalone R: the central IS R (battery in batteryCentral), and its
       // single split peripheral (slot 0, batteryPeripheral) is L. Remap here

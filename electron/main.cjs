@@ -440,8 +440,11 @@ function updateTrayBatteryIcon(battery) {
 
   const r = battery?.r ?? null
   const l = battery?.l ?? null
+  const cr = !!battery?.chargingR
+  const cl = !!battery?.chargingL
   const disconnected = !battery
-  if (lastTrayBattery && lastTrayBattery.r === r && lastTrayBattery.l === l && lastTrayBattery.disconnected === disconnected) {
+  if (lastTrayBattery && lastTrayBattery.r === r && lastTrayBattery.l === l &&
+      lastTrayBattery.cr === cr && lastTrayBattery.cl === cl && lastTrayBattery.disconnected === disconnected) {
     return
   }
   const now = Date.now()
@@ -460,10 +463,12 @@ function updateTrayBatteryIcon(battery) {
   clearTimeout(trayRedrawPending)
   trayRedrawPending = null
   lastTrayRedrawAt = now
-  lastTrayBattery = { r, l, disconnected }
+  lastTrayBattery = { r, l, cr, cl, disconnected }
 
   const fmt = (v) => (v === null || v === undefined ? '--' : String(Math.round(v)))
-  tray.setTitle(disconnected ? '' : ` L${fmt(l)} R${fmt(r)}`)
+  // The bolt sits right after the half that is charging, so with both
+  // halves on a charger it is still clear which one is (or is not).
+  tray.setTitle(disconnected ? '' : ` L${fmt(l)}${cl ? '⚡' : ''} R${fmt(r)}${cr ? '⚡' : ''}`)
 }
 
 // The popup renders its own connection directly and ignores what it gets

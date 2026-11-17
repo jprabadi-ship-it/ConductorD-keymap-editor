@@ -56,7 +56,7 @@ function App() {
   const toastTimersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
   const [highestLayer, setHighestLayer] = useState(0);
   const [pressedPositions, setPressedPositions] = useState<number[]>([]);
-  const [popupBattery, setPopupBattery] = useState<{ l: number | null; r: number | null } | null>(null);
+  const [popupBattery, setPopupBattery] = useState<{ l: number | null; r: number | null; chargingL: boolean; chargingR: boolean } | null>(null);
   // Once a Write lands on the device, offer the "back to the minimap"
   // shortcut in the header (Electron only).
   const [wroteToDevice, setWroteToDevice] = useState(false);
@@ -182,8 +182,9 @@ function App() {
         // IPC relay effect below doesn't re-fire on every 1s poll tick.
         setPopupBattery(prev =>
           prev && prev.l === state.peripheralL && prev.r === state.peripheralR
+            && prev.chargingL === state.chargingL && prev.chargingR === state.chargingR
             ? prev
-            : { l: state.peripheralL, r: state.peripheralR });
+            : { l: state.peripheralL, r: state.peripheralR, chargingL: state.chargingL, chargingR: state.chargingR });
       }
     };
     poll();
