@@ -124,6 +124,11 @@ export const KEYCODES: KeyCodeEntry[] = [
   { code: 'KC_MSTP', label: 'Stop', category: 'Media' },
   { code: 'KC_BRIU', label: 'Bri+', category: 'Media' },
   { code: 'KC_BRID', label: 'Bri-', category: 'Media' },
+  // macOS system keys as sent by QMK/Keychron boards (KC_LAUNCHPAD /
+  // KC_MISSION_CONTROL): Consumer 0x2A0 opens the app list (Launchpad, the
+  // Spotlight "Apps" view since macOS 26) and 0x29F opens Mission Control.
+  { code: 'KC_LAUNCHPAD', label: 'Apps', category: 'Media' },
+  { code: 'KC_MISSION_CONTROL', label: 'Mission', category: 'Media' },
 
   // Mouse
   { code: 'KC_MS_U', label: 'Mouse Up', category: 'Mouse' },

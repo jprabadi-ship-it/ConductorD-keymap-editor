@@ -925,6 +925,10 @@ const CONSUMER_USAGE: Record<number, string> = {
   // AC_NEXT_KEYBOARD_LAYOUT_SELECT -- the macOS "🌐 Globe/fn" key
   // (dt-bindings/zmk/keys.h's GLOBE define).
   0x29D: 'Globe',
+  // What QMK/Keychron send for Mission Control / Launchpad. 0x2A0 is "AC
+  // Soft Key Left" in the HID tables -- not ZMK's similarly named
+  // C_AC_DESKTOP_SHOW_ALL_APPLICATIONS, which is 0x2A2.
+  0x29F: 'Mission', 0x2A0: 'Apps',
 };
 
 const MOD_BITS: [number, string][] = [
@@ -2458,6 +2462,7 @@ const ZMK_TO_CONSUMER: Record<string, number> = {
   C_VOL_UP: 0xE9, C_VOL_DN: 0xEA, C_MUTE: 0xE2,
   C_PLAY_PAUSE: 0xCD, C_NEXT: 0xB5, C_PREV: 0xB6,
   C_BRI_UP: 0x6F, C_BRI_DN: 0x70,
+  C_APPS: 0x2A0, C_MISSION: 0x29F,
 };
 
 function labelToParam(label: string, keyCode: string): number {

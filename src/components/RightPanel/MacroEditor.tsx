@@ -49,7 +49,7 @@ const MACRO_KEY_CATEGORIES = [
   { name: 'Modifiers', keys: 'LSHIFT RSHIFT LCTRL RCTRL LALT RALT LGUI RGUI'.split(' ') },
   { name: 'Navigation', keys: 'ENTER ESC BSPC DEL TAB SPACE CAPS UP DOWN LEFT RIGHT HOME END PG_UP PG_DN'.split(' ') },
   { name: 'Function', keys: 'F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24'.split(' ') },
-  { name: 'Media', keys: 'C_VOL_UP C_VOL_DN C_MUTE C_PLAY_PAUSE C_NEXT C_PREV C_BRI_UP C_BRI_DN'.split(' ') },
+  { name: 'Media', keys: 'C_VOL_UP C_VOL_DN C_MUTE C_PLAY_PAUSE C_NEXT C_PREV C_BRI_UP C_BRI_DN C_APPS C_MISSION'.split(' ') },
   { name: 'IME', keys: 'LANG1 LANG2 LANG3 INT_RO INT_KANA INT_YEN'.split(' ') },
 ];
 
