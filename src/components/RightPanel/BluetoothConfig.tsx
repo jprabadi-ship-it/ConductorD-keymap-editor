@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { KeymapStore } from '../../store/useKeymapStore';
 import { KeyBinding, Modifier } from '../../types';
 import {
-  isConnected, getBleProfiles, setBleProfileName, getOsConfig, setOsConfig, getUsbSlots, setUsbSlotName,
+  isConnected, getBleProfiles, setBleProfileName, getOsConfig, setOsConfig, getUsbSlots, setUsbSlotName, deviceNameByteLength, DEVICE_NAME_MAX_BYTES,
   getGestureConfig, setGestureEnabled, setGestureBinding, resolveKeyBindingRpc, gestureBindingLabel,
   ensureBehaviorsLoaded,
 } from '../../services/usbService';
@@ -123,6 +123,12 @@ export function BluetoothConfig({ store }: Props) {
     const idx = Number(idxStr);
     const name = editValue.trim();
     setEditingKey(null);
+    // The input's maxLength counts characters; the device limit is bytes.
+    const bytes = deviceNameByteLength(name);
+    if (bytes > DEVICE_NAME_MAX_BYTES) {
+      alert(`名前が長すぎるため書き込めません(${bytes}バイト)。実機が受け取れるのは${DEVICE_NAME_MAX_BYTES}バイトまでです(英数字なら${DEVICE_NAME_MAX_BYTES}文字、日本語なら${Math.floor(DEVICE_NAME_MAX_BYTES / 3)}文字)。`);
+      return;
+    }
     if (kind === 'usb') {
       const ok = await setUsbSlotName(idx, name);
       if (ok) setUsbSlots(prev => prev.map((s, i) => i === idx ? { ...s, name } : s));

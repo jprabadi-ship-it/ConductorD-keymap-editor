@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { KeymapStore } from '../../store/useKeymapStore';
 import { BindingType, Modifier } from '../../types';
 import { KEY_CATEGORIES, searchKeyCodes } from '../../data/keycodes';
-import { isConnected, listCustomHoldTapBehaviors } from '../../services/usbService';
+import { isConnected, isSameKeyPress, listCustomHoldTapBehaviors } from '../../services/usbService';
 
 interface Props {
   store: KeymapStore;
@@ -159,7 +159,11 @@ export function KeyConfig({ store }: Props) {
               const isTapKey = binding.type === 'mod-tap' || binding.type === 'layer-tap';
               const currentCode = isTapKey ? binding.tapKeyCode : binding.keyCode;
               const currentLabel = isTapKey ? binding.tapLabel : binding.label;
-              const isSelected = currentCode === kc.code || currentCode === kc.label || currentLabel === kc.label;
+              // Read-back keys carry the device-side spelling ("Ins", "LANG1",
+              // "Esc") in both label and keyCode, which matches no picker
+              // entry by text -- compare the key press itself as well.
+              const isSelected = currentCode === kc.code || currentCode === kc.label || currentLabel === kc.label ||
+                isSameKeyPress(currentLabel, currentCode, kc.label, kc.code);
               return (
                 <button
                   key={kc.code}

@@ -62,7 +62,6 @@ export const KEYCODES: KeyCodeEntry[] = [
   { code: 'KC_PSCR', label: 'PrtSc', category: 'Special' },
   { code: 'KC_SCRL', label: 'ScrLk', category: 'Special' },
   { code: 'KC_PAUS', label: 'Pause', category: 'Special' },
-  { code: 'KC_APP', label: 'App', category: 'Special' },
 
   // IME
   { code: 'KC_LANG1', label: 'LANG1 (かな)', category: 'IME' },

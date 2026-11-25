@@ -1,7 +1,7 @@
 {
   "name": "conductor-keymap-editor",
   "private": true,
-  "version": "0.38.71",
+  "version": "0.38.72",
   "license": "GPL-3.0-or-later",
   "type": "module",
   "main": "electron/main.cjs",
@@ -9,6 +9,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
+    "check:keycodes": "node scripts/check-keycodes.mjs",
     "preview": "vite preview",
     "electron:dev": "concurrently -k -s first \"vite\" \"wait-on http://localhost:5173/ConductorD-keymap-editor/ && electron .\"",
     "electron:build": "tsc -b && cross-env ELECTRON_BUILD=1 vite build && electron-builder",

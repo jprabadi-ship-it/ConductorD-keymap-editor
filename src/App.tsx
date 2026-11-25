@@ -557,6 +557,19 @@ function App() {
               }
               debugLog('INF', 'Verify', `Read-back verification passed (${Object.keys(keymapResult.written).length} keys, ${comboResult.expected.length} combos)`);
             }
+            // Some keys landed and were saved, others did not. Reporting this
+            // as a success left the editor showing keys the device never
+            // took, with nothing on screen to say so. Keep them dirty (so the
+            // next Write retries) and say which ones.
+            if (!keymapResult.ok) {
+              const failedList = keymapResult.failedKeys.map(k => {
+                const [layerIndex, posId] = k.split(':');
+                return `${store.layers.find(l => String(l.index) === layerIndex)?.name ?? `L${layerIndex}`}/${posId}`;
+              });
+              debugLog('ERR', 'Editor', `Write incomplete: ${failedList.length} key(s) were not written (${failedList.join(', ')}) -- see the errors above. The other changes are saved on the device`);
+              showToast(`キー${failedList.length}個は実機に書き込めませんでした（${failedList.slice(0, 3).join('、')}${failedList.length > 3 ? ' ほか' : ''}。>_コンソール参照）。ほかの変更は書き込み済みです`, 'error');
+              return;
+            }
             store.clearDirtyKeys();
             setUnsaved(false);
             setWroteToDevice(true);

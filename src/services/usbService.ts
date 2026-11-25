@@ -2,6 +2,7 @@ import protobuf from 'protobufjs';
 import { debugLog } from '../components/DebugConsole';
 import protoJson from '../data/zmk-studio-proto.json';
 import { keyIdsToPositions, positionsToKeyIds } from '../data/layout';
+import { KEYCODES } from '../data/keycodes';
 import type { DeviceSettingsSnapshot, KeyBinding, Layer, SensitivitySnapshot } from '../types';
 
 const SOF = 171;
@@ -485,8 +486,11 @@ function handleFrame(data: Uint8Array) {
       onActiveLayerCallback?.(highestLayer);
     }
 
+    // protobufjs leaves an unset message field as null (not undefined) on a
+    // decoded message, so every other core notification (layerChanged, ...)
+    // has inputKey === null here.
     const inputKey = resp.notification?.core?.inputKey;
-    if (inputKey !== undefined) {
+    if (inputKey != null) {
       onKeyInputCallback?.(inputKey.position, !!inputKey.pressed);
     }
 
@@ -816,7 +820,9 @@ const KB_USAGE_US: Record<number, string> = {
   24: 'U', 25: 'V', 26: 'W', 27: 'X', 28: 'Y', 29: 'Z',
   30: '1', 31: '2', 32: '3', 33: '4', 34: '5', 35: '6', 36: '7', 37: '8', 38: '9', 39: '0',
   40: 'Enter', 41: 'Esc', 42: 'Bksp', 43: 'Tab', 44: 'Space',
-  45: '-', 46: '=', 47: '[', 48: ']', 49: '\\', 50: '#', 51: ';', 52: "'", 53: '`', 54: ',', 55: '.', 56: '/',
+  // 50 is the ISO "Non-US #" key (ZMK NUHS); see 100 below for why it must
+  // not be labelled '#'.
+  45: '-', 46: '=', 47: '[', 48: ']', 49: '\\', 50: 'NUHS', 51: ';', 52: "'", 53: '`', 54: ',', 55: '.', 56: '/',
   57: 'Caps', 58: 'F1', 59: 'F2', 60: 'F3', 61: 'F4', 62: 'F5', 63: 'F6',
   64: 'F7', 65: 'F8', 66: 'F9', 67: 'F10', 68: 'F11', 69: 'F12',
   70: 'PrtSc', 71: 'ScrLk', 72: 'Pause', 73: 'Ins', 74: 'Home', 75: 'PgUp',
@@ -825,10 +831,14 @@ const KB_USAGE_US: Record<number, string> = {
   84: 'KP /', 85: 'KP *', 86: 'KP -', 87: 'KP +', 88: 'KP Enter',
   89: 'KP 1', 90: 'KP 2', 91: 'KP 3', 92: 'KP 4', 93: 'KP 5',
   94: 'KP 6', 95: 'KP 7', 96: 'KP 8', 97: 'KP 9', 98: 'KP 0', 99: 'KP .',
-  100: '\\', 101: 'App',
+  // 100 is the ISO "Non-US \\" key (ZMK NUBS). It must not share a label with
+  // 49: labels are reversed back into usages on Write (labelToParam), and the
+  // later entry won, so a plain backslash was written as 100. Every label in
+  // these tables has to be unique per layout for that reason.
+  100: 'NUBS', 101: 'App',
   104: 'F13', 105: 'F14', 106: 'F15', 107: 'F16', 108: 'F17', 109: 'F18',
   110: 'F19', 111: 'F20', 112: 'F21', 113: 'F22', 114: 'F23', 115: 'F24',
-  135: 'INT_RO', 136: 'INT_KANA', 137: 'INT_YEN',
+  135: 'INT_RO', 136: 'INT_KANA', 137: 'INT_YEN', 138: 'INT_HENKAN', 139: 'INT_MUHENKAN',
   144: 'LANG1', 145: 'LANG2',
   224: 'L Ctrl', 225: 'L Shift', 226: 'L Alt', 227: 'L GUI',
   228: 'R Ctrl', 229: 'R Shift', 230: 'R Alt', 231: 'R GUI',
@@ -842,12 +852,17 @@ const SHIFT_MAP_US: Record<number, string> = {
 // JIS overrides (same HID codes, different printed characters)
 const KB_USAGE_JIS_OVERRIDE: Record<number, string> = {
   46: '^', 47: '@', 48: '[', 49: ']', 51: ';', 52: ':', 53: '半/全',
-  135: '\\', 136: 'カナ', 137: '¥',
+  135: '\\', 136: 'カナ', 137: '¥', 138: '変換', 139: '無変換',
 };
 
+// No entry for 39 (Shift+0 types nothing on JIS; '~' is Shift+^, 46) or for
+// 53 (半/全 is the unshifted key): a second usage under the same label makes
+// the label resolve to the wrong one on Write.
 const SHIFT_MAP_JIS: Record<number, string> = {
-  30: '!', 31: '"', 32: '#', 33: '$', 34: '%', 35: '&', 36: "'", 37: '(', 38: ')', 39: '~',
-  45: '=', 46: '~', 47: '`', 48: '{', 49: '}', 51: '+', 52: '*', 53: '半/全', 54: '<', 55: '>', 56: '?',
+  30: '!', 31: '"', 32: '#', 33: '$', 34: '%', 35: '&', 36: "'", 37: '(', 38: ')',
+  45: '=', 46: '~', 47: '`', 48: '{', 49: '}', 51: '+', 52: '*', 54: '<', 55: '>', 56: '?',
+  // Shift+ろ and Shift+¥ -- the only way to type these two on a JIS layout.
+  135: '_', 137: '|',
 };
 
 let currentLayout: 'us' | 'jis' = 'us';
@@ -967,7 +982,7 @@ export function hidToLabel(param: number): string {
       return modPrefix(remainingMods) + shiftMap[usage];
     }
     const prefix = modPrefix(mods);
-    return prefix + (base || usage.toString(16));
+    return prefix + (base || `HID:${usage.toString(16)}`);
   }
   if (page === 0x0C) {
     const base = CONSUMER_USAGE[usage] || `Con:${usage.toString(16)}`;
@@ -1435,7 +1450,32 @@ export async function getBleProfiles(): Promise<{ profiles: { name: string; conn
   }
 }
 
+// SetBleProfileNameRequest.name / SetUsbSlotNameRequest.name are max_size:15
+// in core.options, i.e. 14 bytes of UTF-8 plus the NUL. A longer name fails
+// nanopb decode on the firmware, which then sends no response at all -- the
+// host only sees a Response timeout. Refuse it here with the reason instead.
+export const DEVICE_NAME_MAX_BYTES = 14;
+
+export function deviceNameByteLength(name: string): number {
+  return new TextEncoder().encode(name).length;
+}
+
+// What get_ble_profiles returns for a bonded profile that has no stored name:
+// the peer address as formatted by bt_addr_le_to_str, e.g.
+// "AA:BB:CC:DD:EE:FF (random)". It is a placeholder, not a name.
+export function isBleAddressPlaceholderName(name: string): boolean {
+  return /^[0-9a-f]{2}(:[0-9a-f]{2}){5} \(/i.test(name);
+}
+
+function deviceNameTooLong(what: string, name: string): boolean {
+  const bytes = deviceNameByteLength(name);
+  if (bytes <= DEVICE_NAME_MAX_BYTES) return false;
+  debugLog('ERR', 'USB', `${what} name "${name}" is ${bytes} bytes; the device accepts at most ${DEVICE_NAME_MAX_BYTES} (a Japanese character is 3 bytes). Not sent`);
+  return true;
+}
+
 export async function setBleProfileName(profileIndex: number, name: string): Promise<boolean> {
+  if (deviceNameTooLong(`BT profile ${profileIndex}`, name)) return false;
   try {
     await sendRequest({ core: { setBleProfileName: { profileIndex, name } } });
     debugLog('INF', 'USB', `BT profile ${profileIndex} name set to "${name}"`);
@@ -1475,6 +1515,7 @@ export async function getUsbSlots(): Promise<{ slots: { name: string }[]; active
 }
 
 export async function setUsbSlotName(slotIndex: number, name: string): Promise<boolean> {
+  if (deviceNameTooLong(`USB slot ${slotIndex}`, name)) return false;
   try {
     await sendRequest({ core: { setUsbSlotName: { slotIndex, name } } });
     debugLog('INF', 'USB', `USB slot ${slotIndex} name set to "${name}"`);
@@ -1693,6 +1734,9 @@ export async function getInertia(): Promise<{ enabled: boolean; decayMilli: numb
 }
 
 export async function setInertia(enabled: boolean, decayMilli: number, startSpeed: number): Promise<boolean> {
+  // A settings backup drops `enabled: false` (a proto3 default is not an own
+  // property of the decoded message, so JSON.stringify skips it).
+  enabled = !!enabled;
   try {
     await sendRequest({ pointing: { setInertia: { inertia: { enabled, decayMilli, startSpeed } } } });
     debugLog('INF', 'USB', `Inertia set: enabled=${enabled}, decay=${decayMilli}, startSpeed=${startSpeed}`);
@@ -1714,6 +1758,7 @@ export async function getDragScale(): Promise<{ enabled: boolean; numerator: num
 }
 
 export async function setDragScale(enabled: boolean, numerator: number, denominator: number): Promise<boolean> {
+  enabled = !!enabled; // see setInertia
   try {
     await sendRequest({ pointing: { setDragScale: { dragScale: { enabled, numerator, denominator } } } });
     debugLog('INF', 'USB', `Drag scale set: enabled=${enabled}, ratio=${numerator}/${denominator}`);
@@ -1983,7 +2028,12 @@ export async function applyDeviceSettingsSnapshot(snapshot: DeviceSettingsSnapsh
   if (snapshot.bluetoothProfiles?.profiles) {
     for (let i = 0; i < snapshot.bluetoothProfiles.profiles.length; i++) {
       const name = snapshot.bluetoothProfiles.profiles[i]?.name;
-      if (name !== undefined) await remember(`BT profile ${i} name`, setBleProfileName(i, name));
+      if (name === undefined) continue;
+      if (isBleAddressPlaceholderName(name)) {
+        debugLog('INF', 'USB', `BT profile ${i} has no name in the backup (only its address) -- nothing to restore`);
+        continue;
+      }
+      await remember(`BT profile ${i} name`, setBleProfileName(i, name));
     }
   }
 
@@ -2444,7 +2494,7 @@ const ZMK_TO_USAGE: Record<string, number> = {
   LALT: 226, RALT: 230, LGUI: 227, RGUI: 231,
   N1: 30, N2: 31, N3: 32, N4: 33, N5: 34, N6: 35, N7: 36, N8: 37, N9: 38, N0: 39,
   LANG1: 144, LANG2: 145, LANG3: 146,
-  INT_RO: 135, INT_KANA: 136, INT_YEN: 137,
+  INT_RO: 135, INT_KANA: 136, INT_YEN: 137, INT_HENKAN: 138, INT_MUHENKAN: 139,
   // Keypad/numpad usages (USB HID Keyboard/Keypad page 0x54-0x63) -- distinct
   // from the top-row N1-N0 above, used when a layer is bound to &kp KP_N1 etc.
   KP_FSLH: 84, KP_STAR: 85, KP_MINUS: 86, KP_PLUS: 87, KP_ENTER: 88,
@@ -2465,7 +2515,59 @@ const ZMK_TO_CONSUMER: Record<string, number> = {
   C_APPS: 0x2A0, C_MISSION: 0x29F,
 };
 
-function labelToParam(label: string, keyCode: string): number {
+// Key picker entries (src/data/keycodes.ts) whose label is not one hidToLabel
+// produces, so the label tables below cannot resolve them: the picker says
+// "Insert" / "LANG1 (かな)" / "Globe (🌐/fn)" where a Read says "Ins" / "LANG1"
+// / "Globe". Keyed by the entry's code, which is what stays stable when a
+// label is reworded. Layout-independent keys only -- symbols go through the
+// label tables, because which usage types a symbol depends on the US/JIS
+// setting.
+const KEYCODE_TO_PARAM: Record<string, number> = {
+  KC_INS: 0x070049, KC_DEL: 0x07004C,
+  KC_LANG1: 0x070090, KC_LANG2: 0x070091,
+  KC_INT1: 0x070087, KC_INT2: 0x070088, KC_INT3: 0x070089, KC_INT4: 0x07008A, KC_INT5: 0x07008B,
+  KC_HENK: 0x07008A, KC_MHEN: 0x07008B, KC_KANA: 0x070088,
+  GLOBE: 0x0C029D,
+};
+
+// Picker label -> code, for callers that only kept the label (the shared
+// gesture editor stores "C+Insert" as both label and keyCode).
+const PICKER_LABEL_TO_CODE: Record<string, string> = {};
+for (const k of KEYCODES) {
+  if (PICKER_LABEL_TO_CODE[k.label] === undefined) PICKER_LABEL_TO_CODE[k.label] = k.code;
+}
+
+// A single key's display label (no modifier prefix) -> param, or undefined.
+function baseLabelToParam(label: string): number | undefined {
+  if (LABEL_TO_SHIFTED[label] !== undefined) {
+    return (0x02 << 24) | (0x07 << 16) | LABEL_TO_SHIFTED[label];
+  }
+  if (LABEL_TO_USAGE[label] !== undefined) {
+    return (0x07 << 16) | LABEL_TO_USAGE[label];
+  }
+  if (LABEL_TO_CONSUMER[label] !== undefined) {
+    return (0x0C << 16) | LABEL_TO_CONSUMER[label];
+  }
+  // hidToLabel's placeholders for usages it has no name for.
+  const unnamed = label.match(/^(HID|Con):([0-9a-f]+)$/i);
+  if (unnamed) {
+    return ((unnamed[1].toLowerCase() === 'hid' ? 0x07 : 0x0C) << 16) | parseInt(unnamed[2], 16);
+  }
+  const pickerCode = PICKER_LABEL_TO_CODE[label];
+  if (pickerCode !== undefined && KEYCODE_TO_PARAM[pickerCode] !== undefined) {
+    return KEYCODE_TO_PARAM[pickerCode];
+  }
+  return undefined;
+}
+
+const LABEL_MOD_BITS: Record<string, number> = {
+  C: 0x01, S: 0x02, A: 0x04, G: 0x08, RC: 0x10, RS: 0x20, RA: 0x40, RG: 0x80,
+};
+
+// Returns 0 when the label/keyCode pair names no HID usage -- callers must
+// treat that as "cannot be written as a key press", never send it: &kp 0 is
+// rejected by the keymap RPC and silently stored by the combo/gesture ones.
+export function labelToParam(label: string, keyCode: string): number {
   // ZMK-style labels from macro editor
   if (ZMK_TO_SHIFTED[label] !== undefined) {
     return (0x02 << 24) | (0x07 << 16) | ZMK_TO_SHIFTED[label];
@@ -2476,38 +2578,31 @@ function labelToParam(label: string, keyCode: string): number {
   if (ZMK_TO_CONSUMER[label] !== undefined) {
     return (0x0C << 16) | ZMK_TO_CONSUMER[label];
   }
-  // Check shifted symbols
-  if (LABEL_TO_SHIFTED[label] !== undefined) {
-    return (0x02 << 24) | (0x07 << 16) | LABEL_TO_SHIFTED[label];
-  }
-  // Check keyboard usage
-  if (LABEL_TO_USAGE[label] !== undefined) {
-    return (0x07 << 16) | LABEL_TO_USAGE[label];
-  }
-  // Check consumer
-  if (LABEL_TO_CONSUMER[label] !== undefined) {
-    return (0x0C << 16) | LABEL_TO_CONSUMER[label];
-  }
-  // Mod+key pattern like "C+Up"
-  const modMatch = label.match(/^([CSAG+]+)\+(.+)$/);
+  const direct = baseLabelToParam(label);
+  if (direct !== undefined) return direct;
+  // Mod+key pattern like "C+Up" (hidToLabel's modPrefix, incl. right-hand
+  // "RC+"/"RS+"...)
+  const modMatch = label.match(/^((?:R?[CSAG]\+)+)(.+)$/);
   if (modMatch) {
     let mods = 0;
-    const modStr = modMatch[1];
-    if (modStr.includes('C')) mods |= 0x01;
-    if (modStr.includes('S')) mods |= 0x02;
-    if (modStr.includes('A')) mods |= 0x04;
-    if (modStr.includes('G')) mods |= 0x08;
-    const baseLabel = modMatch[2];
-    const baseUsage = LABEL_TO_USAGE[baseLabel];
-    if (baseUsage !== undefined) {
-      return (mods << 24) | (0x07 << 16) | baseUsage;
-    }
-    const consumerUsage = LABEL_TO_CONSUMER[baseLabel];
-    if (consumerUsage !== undefined) {
-      return (mods << 24) | (0x0C << 16) | consumerUsage;
-    }
+    for (const m of modMatch[1].split('+')) mods |= LABEL_MOD_BITS[m] || 0;
+    const base = baseLabelToParam(modMatch[2]);
+    if (base !== undefined) return (mods << 24) | base;
   }
+  // Label unknown: fall back to the picker entry's code.
+  if (KEYCODE_TO_PARAM[keyCode] !== undefined) return KEYCODE_TO_PARAM[keyCode];
   return 0;
+}
+
+// Whether two label/keyCode pairs name the same key press. Lets a picker
+// highlight its entry for a key that was read back from the device under a
+// different spelling ("Ins" vs the picker's "Insert", "Esc" vs "ESC").
+// Always false for non-key-press entries (layers, BT, mouse...), which the
+// callers match by code/label instead.
+export function isSameKeyPress(labelA: string | undefined, codeA: string | undefined, labelB: string, codeB: string): boolean {
+  if (!labelA && !codeA) return false;
+  const a = labelToParam(labelA || '', codeA || '');
+  return a !== 0 && a === labelToParam(labelB, codeB);
 }
 
 export async function ensureBehaviorsLoaded(): Promise<void> {
@@ -2618,6 +2713,10 @@ export async function resolveKeyBindingRpc(binding: KeyBinding): Promise<{ behav
 
     if (behByType['kp'] === undefined) return null;
     let param1 = labelToParam(binding.label, binding.keyCode);
+    // No usage for this label: report it as unresolvable (callers skip the
+    // combo / show an error) rather than storing &kp 0 -- the combo and
+    // gesture RPCs don't validate params the way setLayerBinding does.
+    if (param1 === 0) return null;
     if (binding.modifiers?.length) {
       const modBits: Record<string, number> = {
         lctrl: 0x01, lshift: 0x02, lalt: 0x04, lgui: 0x08,
@@ -2913,14 +3012,17 @@ export async function writeCombosToDevice(combos: import('../types').Combo[]): P
 
 // Returns the raw triples actually sent per position key ("layer:posId"),
 // so the caller can verify they landed on the device (verifyDeviceState).
-export async function writeKeymapToDevice(layers: Layer[], dirtyKeys?: Set<string>): Promise<{ ok: boolean; written: Record<string, { behaviorId: number; param1: number; param2: number }> }> {
+// `failedKeys` lists the "layerIndex:positionId" of every dirty key that did
+// not land (rejected by the device, or not encodable) -- `ok` is false
+// whenever it is non-empty, even if other keys were written.
+export async function writeKeymapToDevice(layers: Layer[], dirtyKeys?: Set<string>): Promise<{ ok: boolean; written: Record<string, { behaviorId: number; param1: number; param2: number }>; failedKeys: string[] }> {
   // NOTE: check the shared connection state, not `writer` -- that's the USB
   // serial handle only, and a BLE connection (web or native bridge) leaves
   // it null. Checking `writer` here silently skipped every key-binding
   // write over BLE while names/colors/combos (no such check) succeeded.
   if (!isConnected()) {
     debugLog('ERR', 'USB', 'Not connected');
-    return { ok: false, written: {} };
+    return { ok: false, written: {}, failedKeys: [] };
   }
 
   // Ensure behaviors are loaded
@@ -2973,6 +3075,7 @@ export async function writeKeymapToDevice(layers: Layer[], dirtyKeys?: Set<strin
   let written = 0;
   let skipped = 0;
   let failed = 0;
+  const failedKeys: string[] = [];
   const writtenBindings: Record<string, { behaviorId: number; param1: number; param2: number }> = {};
 
   for (const layer of layers) {
@@ -2993,7 +3096,10 @@ export async function writeKeymapToDevice(layers: Layer[], dirtyKeys?: Set<strin
       // knows about edits made in the editor, so it misses that case (seen
       // live on hardware: layer 6 position 26 resolving to "none" while the
       // editor showed &m_master).
-      if (!isDirty && key.binding.keyCode?.startsWith('&') && key.binding.keyCode.length > 1) {
+      // Only for a key that is still a macro key: switching its Type (to
+      // None, Trans, ...) keeps the old `&name` in keyCode, and such a key
+      // would otherwise be rewritten on every Write.
+      if (!isDirty && key.binding.type === 'basic' && key.binding.keyCode?.startsWith('&') && key.binding.keyCode.length > 1) {
         const expected = macroNameToDeviceId[key.binding.keyCode.substring(1)];
         if (expected !== undefined && raw?.behaviorId !== expected) {
           debugLog('INF', 'USB', `  ${posId}@L${layer.index}: device binding (beh=${raw?.behaviorId ?? '?'}) does not reference macro slot ${expected} -- rewriting`);
@@ -3066,6 +3172,16 @@ export async function writeKeymapToDevice(layers: Layer[], dirtyKeys?: Set<strin
           } else {
             behaviorId = behByType["kp"] ?? 0;
             param1 = labelToParam(binding.label, binding.keyCode);
+            if (param1 === 0) {
+              // Not a key press the editor knows how to encode (e.g. a picker
+              // entry that needs a behavior this path doesn't handle). The
+              // firmware would reject &kp 0 anyway; fail it here with a
+              // reason instead of a bare INVALID_PARAMETERS.
+              debugLog('ERR', 'USB', `  ${posId}@L${layer.index}: "${binding.label}" (${binding.keyCode}) cannot be written as a key press -- no HID usage for it. Key left unchanged on the device`);
+              failed++;
+              failedKeys.push(rawKey);
+              continue;
+            }
             if (binding.modifiers?.length) {
               const modBits: Record<string, number> = {
                 lctrl: 0x01, lshift: 0x02, lalt: 0x04, lgui: 0x08,
@@ -3146,16 +3262,18 @@ export async function writeKeymapToDevice(layers: Layer[], dirtyKeys?: Set<strin
           writtenBindings[rawKey] = { behaviorId, param1, param2 };
         } else {
           failed++;
+          failedKeys.push(rawKey);
         }
       } catch (e: any) {
         debugLog('ERR', 'USB', `Failed to write ${posId} on layer ${layer.index}: ${e.message}`);
         failed++;
+        failedKeys.push(rawKey);
       }
     }
   }
 
   debugLog('INF', 'USB', `Write complete: ${written} bindings updated, ${skipped} unchanged${failed > 0 ? `, ${failed} FAILED` : ''}`);
-  return { ok: failed === 0, written: writtenBindings };
+  return { ok: failed === 0, written: writtenBindings, failedKeys };
 }
 
 // Post-write verification: re-read the keymap and combos from the device

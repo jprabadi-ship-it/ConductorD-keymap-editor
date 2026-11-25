@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { KeymapStore } from '../../store/useKeymapStore';
 import { Combo } from '../../types';
 import { KEYBOARD_LAYOUT, keyIdsToPositions, positionsToKeyIds } from '../../data/layout';
-import { getAutoLayer, isConnected, isUnlocked, requestUnlock, setAutoLayer, unlockFailureMessage } from '../../services/usbService';
+import { getAutoLayer, isConnected, isSameKeyPress, isUnlocked, requestUnlock, setAutoLayer, unlockFailureMessage } from '../../services/usbService';
 import { KEY_CATEGORIES, searchKeyCodes } from '../../data/keycodes';
 import { debugLog } from '../DebugConsole';
 
@@ -490,7 +490,7 @@ export function ComboList({ store }: Props) {
                     {searchKeyCodes(outputKeySearch, outputKeyCategory || undefined).slice(0, 60).map(kc => (
                       <button
                         key={kc.code}
-                        className={`keycode-btn ${editDraft.binding?.keyCode === kc.code || editDraft.binding?.label === kc.label ? 'selected' : ''}`}
+                        className={`keycode-btn ${editDraft.binding?.keyCode === kc.code || editDraft.binding?.label === kc.label || isSameKeyPress(editDraft.binding?.label, editDraft.binding?.keyCode, kc.label, kc.code) ? 'selected' : ''}`}
                         onClick={() => setEditDraft({ ...editDraft, binding: { ...editDraft.binding!, keyCode: kc.code, label: kc.label } })}
                       >{kc.label}</button>
                     ))}
