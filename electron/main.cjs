@@ -5,6 +5,7 @@ const { execFile } = require('node:child_process')
 const fs = require('node:fs')
 const crypto = require('node:crypto')
 const extractZip = require('extract-zip')
+const updater = require('./updater.cjs')
 
 const isDev = !app.isPackaged
 const preloadPath = path.join(__dirname, 'preload.cjs')
@@ -495,6 +496,7 @@ function buildTrayMenu() {
       },
     },
     { type: 'separator' },
+    ...updater.trayItems(),
     {
       label: 'Quit',
       click: () => {
@@ -616,6 +618,9 @@ async function checkPopupMemory() {
 setInterval(checkPopupMemory, POPUP_MEMORY_CHECK_MS)
 
 ipcMain.on('popup-context-menu', showPopupContextMenu)
+
+// The header's "Studioアップデート" button in the Studio window.
+ipcMain.on('check-app-update', () => updater.checkForUpdate({ manual: true }))
 
 // Serial-port handoff (the port is exclusive, one renderer at a time):
 // Studio invokes steal-port before connecting; if the popup holds a
@@ -1209,6 +1214,11 @@ app.whenReady().then(() => {
   // readout simply appears next to the tray icon after launch.
   const lastType = loadLastConnectionType()
   if (lastType) trayConnect(lastType, { quiet: true })
+
+  // Offer a newer release once the launch-time connect has had its turn.
+  // Left-overs of a previous update are cleared first.
+  updater.cleanUpStaging()
+  setTimeout(() => updater.checkForUpdate(), 4000)
 
   app.on('activate', () => toggleWindow())
 })

@@ -42,6 +42,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // port is exclusive, so when Studio wants to connect it asks the popup to
   // release its own connection first, and hands it back on disconnect.
   openStudio: () => ipcRenderer.send('open-studio'),
+  // Same download-verify-swap-relaunch flow the launch-time check offers.
+  checkForAppUpdate: () => ipcRenderer.send('check-app-update'),
   getPopupPrefs: () => ipcRenderer.invoke('get-popup-prefs'),
   hidePopup: () => ipcRenderer.send('hide-popup'),
   switchToMinimap: () => ipcRenderer.send('switch-to-minimap'),

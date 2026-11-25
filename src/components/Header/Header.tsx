@@ -63,6 +63,18 @@ async function startMacAppDownload(e: React.MouseEvent) {
   e.preventDefault();
   window.location.href = await resolveMacAppDownloadUrl();
 }
+// In the Mac app the main process can install the update itself (download,
+// verify, swap the bundle, relaunch); a build without that falls back to
+// handing over the DMG.
+function startAppUpdate(e: React.MouseEvent) {
+  const api = (window as any).electronAPI;
+  if (api?.checkForAppUpdate) {
+    e.preventDefault();
+    api.checkForAppUpdate();
+    return;
+  }
+  return startMacAppDownload(e);
+}
 // Firmware lives in a separate, PRIVATE repo, so its own release URL is a 404
 // for anyone not signed in to GitHub with access. Every Studio release here
 // (this repo is public) therefore carries a copy of the flashable firmware:
@@ -219,6 +231,7 @@ export function Header({ store, showConsole, onToggleConsole, usbConnected, conn
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {[
+                { v: '0.38.73.0', at: '2026-11-25 JST', changes: ['Macアプリ版: 自動アップデートを追加。起動時に新しい版があれば「ダウンロードしてインストールしますか?」と尋ね、「する」を選ぶと、ダウンロードと準備を済ませてからStudioを終了し、新しい版に置き換えて起動し直すところまで自動で行います。これまではDMGを落として手で上書きする必要がありました', '入れ替える前に、ダウンロードしたアプリの署名(開発元と公証)と版番号を確認します。合わない場合や途中で失敗した場合は入れ替えず、いまの版がそのまま残ります。「あとで」を選ぶと何もせず、次の起動時にまた尋ねます', 'メニューバーのメニューに「アップデートを確認」を追加(ダウンロード中は進み具合を表示)。Studioウィンドウの「Studioアップデート」ボタンも同じ動きになりました', 'この機能が働くのは、この版(v0.38.73)以降から次の版へ上げるときです。v0.38.72以前からこの版へは、これまで通り手動で入れ替えてください。ディスクイメージから直接起動している場合など自動で入れ替えられない時は、ダウンロードページを案内します'] },
                 { v: '0.38.72.0', at: '2026-11-25 JST', changes: ['キー一覧から選んでも実機に書き込めなかったキーを修正。Navigationの「Insert」「Delete」と、IMEカテゴリの全部(LANG1/LANG2、INT1〜INT5、Henkan、Muhenkan、Kana、Globe)が対象です。一覧のラベル(「LANG1 (かな)」など)をキーの番号に変換できず、実機に拒否されていました。コンボの出力キーとデバイス別ジェスチャでは拒否されずに「何も出ないキー」として保存されていたので、これらに上のキーを割り当てていた場合は選び直してWriteしてください', '「\\」が別のキー(ISO配列にしかない Non-US \\)として書き込まれていた不具合を修正。一覧から「\\」を選んだ時のほか、Readした「\\」のキーをレイヤーコピーなどで書き直した時やマクロの手順でも起きていました。同じ原因の取り違え(Non-US #、JIS配列設定での Shift+0 と 半/全)も合わせて直し、ISO配列用の2キーは「NUBS」「NUHS」と表示するようにしました', 'JIS配列設定で「_」と「|」が書き込めなかったのを修正(Shift+ろ / Shift+¥ として書き込みます)。INT4(変換)・INT5(無変換)をReadした時の表示も「HID:8a」から「INT_HENKAN」「INT_MUHENKAN」(JIS配列設定では「変換」「無変換」)に', '一部のキーだけ書き込めなかった時に「実機のFlashに書き込みました」と表示していたのを修正。書き込めなかったキーを通知に出し、そのキーは未書き込みのまま残します(ほかの変更は従来通り保存されます)。キー一覧のMouse(Mouse Up/Down/Left/Right、Wheel Up/Down)・System・Layerの各項目は今もキーとしては書き込めず、選んでWriteするとこの通知が出ます。レイヤー切り替えは「Type」のMomentary/Toggleから設定してください', 'Readしたキーを選択した時、キー一覧の該当項目がハイライトされるように(「Ins」と「Insert」、「Esc」と「ESC」のように表記が違うものは外れていました)', 'キー一覧のSpecialから「App」(Windowsのメニューキー相当)を外しました。アプリ一覧を開くMediaの「Apps」と紛らわしいためです。割り当て済みのキーはそのまま動きます', 'デバイス設定のインポートが「BT profile 0 name」で5秒止まり、警告付きで終わっていたのを修正。名前を付けていないペアリング済みのBTプロファイルは、バックアップに接続先のアドレスが名前の代わりに入っており、それを名前として書き戻そうとして実機が応答できなくなっていました。アドレスの形をした名前は復元を飛ばします。あわせて、BT/USBの名前が14バイトを超える時(日本語なら5文字以上)は、書き込む前にお知らせするようにしました(これまでは無応答のまま時間切れになっていました)', 'マクロを割り当てていたキーのTypeをNoneなどに変えると、以後Writeのたびにそのキーが書き直されていたのを修正(書かれる内容は同じで、実害はありませんでした)', 'レイヤーが切り替わるたびに>_コンソールへ「Decode error」の警告が出ていたのを修正(動作への影響はありませんでした)。デバイス設定のインポート時、無効になっているInertia / Drag scaleのログが「enabled=undefined」と出ていたのも「false」に', 'FWの更新は不要です。実機での確認はまだ行っていません'] },
                 { v: '0.38.71.0', at: '2026-11-25 JST', changes: ['キー一覧のMediaに「Apps」(アプリ一覧)と「Mission」(Mission Control)を追加。Keychronなどのキーボードに付いているアプリ一覧キー・Mission Controlキーと同じ信号(USB HIDのConsumer 0x2A0 / 0x29F)を送ります。「⌘Space→待つ→⌘1」のマクロと違い、待ち時間なしの1キーでアプリ一覧を開けます。マクロの手順にも C_APPS / C_MISSION として入れられます', 'FWの更新は不要です(キー割り当てとして書き込むだけ)。macOS以外での動作は未確認です'] },
                 { v: '0.38.70.0', at: '2026-11-17 JST', changes: ['Macアプリ版: 起動時に自動で接続するように。最後に接続できた方法(USBかBLE)を覚えておき、次回の起動時に同じ方法でつなぎます。アプリを起動するだけで、メニューバーのアイコンの横に電池残量が出ます', '起動時の自動接続では、ポート選択ダイアログも失敗の通知も出しません。キーボードが見つからない時や候補が複数あって決められない時は静かに諦めるので、その場合はメニューの「USBで接続」「BLEで接続」からつないでください(初回は覚えている方法が無いので、一度メニューから接続する必要があります)'] },
@@ -524,9 +537,9 @@ export function Header({ store, showConsole, onToggleConsole, usbConnected, conn
       )}
 
       {isElectron && editorLatestVersion && (
-        <a className="header-action-btn" href={MAC_APP_DOWNLOAD_URL} onClick={startMacAppDownload}
+        <a className="header-action-btn" href={MAC_APP_DOWNLOAD_URL} onClick={startAppUpdate}
           style={{ textDecoration: 'none', borderColor: 'var(--warning)' }}
-          title={`Studio v${editorLatestVersion} が公開されています。クリックしてDMGをダウンロードし、開いて上書きインストールしてください`}>
+          title={`Studio v${editorLatestVersion} が公開されています。クリックすると、ダウンロードして入れ替え、起動し直すところまで自動で行います(始める前に確認が出ます)`}>
           <span>⬇</span> Studioアップデート (v{editorLatestVersion})
         </a>
       )}
