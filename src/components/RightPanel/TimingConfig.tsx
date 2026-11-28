@@ -7,6 +7,8 @@ import { MiniKeyboardPicker } from './MiniKeyboardPicker';
 
 interface Props {
   store: KeymapStore;
+  /** App's connection state (USB or BLE); the device reads re-run when it changes. */
+  connected: boolean;
 }
 
 const PRESETS = [150, 175, 200, 250, 300];
@@ -15,6 +17,16 @@ const PRESETS = [150, 175, 200, 250, 300];
 // defined in config/monokey.keymap. Resolved to a Studio behaviorId by name at
 // runtime since local IDs aren't stable identifiers we can hardcode.
 const POSITIONAL_HOLD_TAP_NAMES = ['mt_shift_z', 'lt6_j'] as const;
+
+// Firmware cap on hold-trigger positions per behavior: max_count:32 on
+// Set/GetHoldTapPositions in zmk/behaviors.options and
+// HOLDTAP_POSITIONS_MAX_PER_INSTANCE in zmk/app/src/studio/behavior_subsystem.c.
+// A 33rd position makes the request fail to decode on the device, so the
+// save fails -- keep the selection within this limit.
+const HOLD_TAP_POSITIONS_MAX = 32;
+
+// Result of the last save/reset on a row, shown inline under it.
+type RowMessage = { kind: 'ok' | 'error'; text: string };
 
 interface HoldTapEntry {
   name: string;
@@ -52,44 +64,90 @@ interface FlavorEntry {
   hasOverride: boolean;
 }
 
-export function TimingConfig({ store }: Props) {
-  const [loaded, setLoaded] = useState(false);
-  const [holdTapEntries, setHoldTapEntries] = useState<HoldTapEntry[]>(
-    POSITIONAL_HOLD_TAP_NAMES.map(name => ({ name, behaviorId: null, keyIds: [], hasOverride: false }))
+// Where each section's device read stands. 'offline' is the state before a
+// device is connected (nothing has been read, so the values on screen are not
+// the device's); the loaders re-run whenever the connection comes up, so a tab
+// opened before connecting no longer stays stuck on its initial placeholders.
+type LoadStatus = 'offline' | 'loading' | 'loaded' | 'failed';
+
+function statusNote(status: LoadStatus): string | null {
+  switch (status) {
+    case 'offline': return '未接続です（デバイスに接続すると読み込みます）';
+    case 'loading': return 'デバイスから読み込み中…';
+    case 'failed': return 'デバイスから読み込めませんでした（「再読込」を押してください）';
+    default: return null;
+  }
+}
+
+const initialHoldTapEntries = (): HoldTapEntry[] =>
+  POSITIONAL_HOLD_TAP_NAMES.map(name => ({ name, behaviorId: null, keyIds: [], hasOverride: false }));
+const initialFlavorEntries = (): FlavorEntry[] =>
+  FLAVOR_HOLD_TAP_NAMES.map(({ name, label }) => ({ name, label, behaviorId: null, flavor: 0, hasOverride: false }));
+
+function RowMessageLine({ msg }: { msg: RowMessage }) {
+  return (
+    <div style={{ fontSize: 10, marginTop: 4, color: msg.kind === 'error' ? 'var(--danger)' : 'var(--success)' }}>
+      {msg.text}
+    </div>
   );
-  const [holdTapLoaded, setHoldTapLoaded] = useState(false);
+}
+
+export function TimingConfig({ store, connected }: Props) {
+  const [ttStatus, setTtStatus] = useState<LoadStatus>('offline');
+  const [ttReload, setTtReload] = useState(0);
+  const [holdTapEntries, setHoldTapEntries] = useState<HoldTapEntry[]>(initialHoldTapEntries);
+  const [holdTapStatus, setHoldTapStatus] = useState<LoadStatus>('offline');
+  const [holdTapReload, setHoldTapReload] = useState(0);
   const [editingHoldTap, setEditingHoldTap] = useState<string | null>(null);
-  const [flavorEntries, setFlavorEntries] = useState<FlavorEntry[]>(
-    FLAVOR_HOLD_TAP_NAMES.map(({ name, label }) => ({ name, label, behaviorId: null, flavor: 0, hasOverride: false }))
-  );
-  const [flavorLoaded, setFlavorLoaded] = useState(false);
+  const [holdTapMessages, setHoldTapMessages] = useState<Record<string, RowMessage>>({});
+  const [flavorMessages, setFlavorMessages] = useState<Record<string, RowMessage>>({});
+  const [flavorEntries, setFlavorEntries] = useState<FlavorEntry[]>(initialFlavorEntries);
+  const [flavorStatus, setFlavorStatus] = useState<LoadStatus>('offline');
+  const [flavorReload, setFlavorReload] = useState(0);
   const [keyRepeatEnabled, setKeyRepeatEnabledState] = useState(false);
-  const [keyRepeatLoaded, setKeyRepeatLoaded] = useState(false);
+  const [keyRepeatStatus, setKeyRepeatStatus] = useState<LoadStatus>('offline');
   const [keyRepeatBusy, setKeyRepeatBusy] = useState(false);
 
+  // Each loader keys on the connection state (and its section's reload
+  // counter), not on a "loaded" flag: the flag never changed while offline,
+  // so the effect never re-ran once a device was connected, and the 再読込
+  // buttons -- which only cleared an already-false flag -- did nothing.
   useEffect(() => {
-    if (!isConnected() || loaded) return;
+    if (!connected) { setTtStatus('offline'); return; }
+    let cancelled = false;
+    setTtStatus('loading');
     (async () => {
       const tt = await getTappingTerm();
+      if (cancelled) return;
       if (tt !== null) {
         store.setTappingTerm(tt);
+        setTtStatus('loaded');
         debugLog('INF', 'Timing', `Loaded tapping term: ${tt}ms`);
+      } else {
+        setTtStatus('failed');
       }
-      setLoaded(true);
     })();
-  }, [loaded]);
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connected, ttReload]);
 
   useEffect(() => {
-    if (!isConnected() || keyRepeatLoaded) return;
+    if (!connected) { setKeyRepeatStatus('offline'); return; }
+    let cancelled = false;
+    setKeyRepeatStatus('loading');
     (async () => {
       const enabled = await getKeyRepeatEnabled();
+      if (cancelled) return;
       if (enabled !== null) {
         setKeyRepeatEnabledState(enabled);
+        setKeyRepeatStatus('loaded');
         debugLog('INF', 'Timing', `Loaded key repeat emulation: ${enabled}`);
+      } else {
+        setKeyRepeatStatus('failed');
       }
-      setKeyRepeatLoaded(true);
     })();
-  }, [keyRepeatLoaded]);
+    return () => { cancelled = true; };
+  }, [connected]);
 
   const toggleKeyRepeat = async () => {
     if (!isConnected()) { debugLog('WRN', 'Timing', 'Not connected'); return; }
@@ -102,19 +160,32 @@ export function TimingConfig({ store }: Props) {
     const ok = await setKeyRepeatEnabled(next);
     if (ok) {
       setKeyRepeatEnabledState(next);
+      setKeyRepeatStatus('loaded');
     }
     setKeyRepeatBusy(false);
   };
 
   useEffect(() => {
-    if (!isConnected() || holdTapLoaded) return;
+    if (!connected) {
+      setHoldTapStatus('offline');
+      setHoldTapEntries(initialHoldTapEntries());
+      setEditingHoldTap(null);
+      setHoldTapMessages({});
+      return;
+    }
+    let cancelled = false;
+    setHoldTapStatus('loading');
+    setHoldTapMessages({});
     (async () => {
       const ids = await listBehaviors();
+      if (cancelled) return;
+      if (ids.length === 0) { setHoldTapStatus('failed'); return; }
       const entries: HoldTapEntry[] = [];
       for (const name of POSITIONAL_HOLD_TAP_NAMES) {
         let behaviorId: number | null = null;
         for (const id of ids) {
           const details = await getBehaviorDetails(id);
+          if (cancelled) return;
           if (details?.displayName === name) { behaviorId = id; break; }
         }
         if (behaviorId === null) {
@@ -122,6 +193,7 @@ export function TimingConfig({ store }: Props) {
           continue;
         }
         const positions = await getHoldTapPositions(behaviorId);
+        if (cancelled) return;
         entries.push({
           name,
           behaviorId,
@@ -130,20 +202,32 @@ export function TimingConfig({ store }: Props) {
         });
       }
       setHoldTapEntries(entries);
-      setHoldTapLoaded(true);
+      setHoldTapStatus('loaded');
       debugLog('INF', 'Timing', `Loaded positional hold-tap config for ${entries.length} behaviors`);
     })();
-  }, [holdTapLoaded]);
+    return () => { cancelled = true; };
+  }, [connected, holdTapReload]);
 
   useEffect(() => {
-    if (!isConnected() || flavorLoaded) return;
+    if (!connected) {
+      setFlavorStatus('offline');
+      setFlavorEntries(initialFlavorEntries());
+      setFlavorMessages({});
+      return;
+    }
+    let cancelled = false;
+    setFlavorStatus('loading');
+    setFlavorMessages({});
     (async () => {
       const ids = await listBehaviors();
+      if (cancelled) return;
+      if (ids.length === 0) { setFlavorStatus('failed'); return; }
       const entries: FlavorEntry[] = [];
       for (const { name, label } of FLAVOR_HOLD_TAP_NAMES) {
         let behaviorId: number | null = null;
         for (const id of ids) {
           const details = await getBehaviorDetails(id);
+          if (cancelled) return;
           if (details?.displayName === name) { behaviorId = id; break; }
         }
         if (behaviorId === null) {
@@ -151,6 +235,7 @@ export function TimingConfig({ store }: Props) {
           continue;
         }
         const result = await getHoldTapFlavor(behaviorId);
+        if (cancelled) return;
         entries.push({
           name,
           label,
@@ -160,15 +245,41 @@ export function TimingConfig({ store }: Props) {
         });
       }
       setFlavorEntries(entries);
-      setFlavorLoaded(true);
+      setFlavorStatus('loaded');
       debugLog('INF', 'Timing', `Loaded hold-tap flavor config for ${entries.length} behaviors`);
     })();
-  }, [flavorLoaded]);
+    return () => { cancelled = true; };
+  }, [connected, flavorReload]);
+
+  // Not-yet-read text for one behavior row; null once the device answered.
+  const entryNote = (status: LoadStatus, behaviorId: number | null): string | null =>
+    statusNote(status) ?? (behaviorId === null ? '未検出（デバイスに存在しません）' : null);
+
+  const setHoldTapMessage = (name: string, msg: RowMessage | null) =>
+    setHoldTapMessages(prev => {
+      const next = { ...prev };
+      if (msg) next[name] = msg; else delete next[name];
+      return next;
+    });
+  const setFlavorMessage = (name: string, msg: RowMessage | null) =>
+    setFlavorMessages(prev => {
+      const next = { ...prev };
+      if (msg) next[name] = msg; else delete next[name];
+      return next;
+    });
 
   const toggleHoldTapKey = (name: string, keyId: string) => {
+    const entry = holdTapEntries.find(e => e.name === name);
+    if (!entry) return;
+    const removing = entry.keyIds.includes(keyId);
+    if (!removing && entry.keyIds.length >= HOLD_TAP_POSITIONS_MAX) {
+      setHoldTapMessage(name, { kind: 'error', text: `選べるのは最大${HOLD_TAP_POSITIONS_MAX}個までです（デバイス側の上限）。ほかのキーを外してから選んでください` });
+      return;
+    }
+    setHoldTapMessage(name, null);
     setHoldTapEntries(prev => prev.map(e => e.name !== name ? e : {
       ...e,
-      keyIds: e.keyIds.includes(keyId) ? e.keyIds.filter(k => k !== keyId) : [...e.keyIds, keyId],
+      keyIds: removing ? e.keyIds.filter(k => k !== keyId) : [...e.keyIds, keyId],
     }));
   };
 
@@ -179,10 +290,17 @@ export function TimingConfig({ store }: Props) {
       alert(unlockFailureMessage());
       return;
     }
+    if (entry.keyIds.length > HOLD_TAP_POSITIONS_MAX) {
+      setHoldTapMessage(entry.name, { kind: 'error', text: `${entry.keyIds.length}個選ばれています。デバイスに保存できるのは最大${HOLD_TAP_POSITIONS_MAX}個です` });
+      return;
+    }
     const ok = await setHoldTapPositions(entry.behaviorId, keyIdsToPositions(entry.keyIds));
     if (ok) {
       setHoldTapEntries(prev => prev.map(e => e.name === entry.name ? { ...e, hasOverride: true } : e));
+      setHoldTapMessage(entry.name, { kind: 'ok', text: `保存しました（${entry.keyIds.length}個）` });
       debugLog('INF', 'Timing', `Saved hold-trigger positions for ${entry.name}`);
+    } else {
+      setHoldTapMessage(entry.name, { kind: 'error', text: '保存できませんでした。デバイスが応答しなかったか、書き込みを受け付けませんでした（詳細はデバッグコンソール）' });
     }
   };
 
@@ -201,7 +319,10 @@ export function TimingConfig({ store }: Props) {
         keyIds: positions ? positionsToKeyIds(positions.positions) : [],
         hasOverride: positions?.hasRuntimeOverride ?? false,
       } : e));
+      setHoldTapMessage(entry.name, { kind: 'ok', text: 'デフォルトに戻しました' });
       debugLog('INF', 'Timing', `Reset ${entry.name} to devicetree default positions`);
+    } else {
+      setHoldTapMessage(entry.name, { kind: 'error', text: 'デフォルトに戻せませんでした（詳細はデバッグコンソール）' });
     }
   };
 
@@ -215,7 +336,10 @@ export function TimingConfig({ store }: Props) {
     const ok = await setHoldTapFlavor(entry.behaviorId, flavor);
     if (ok) {
       setFlavorEntries(prev => prev.map(e => e.name === entry.name ? { ...e, flavor, hasOverride: true } : e));
+      setFlavorMessage(entry.name, null);
       debugLog('INF', 'Timing', `Saved flavor for ${entry.name}: ${FLAVOR_OPTIONS[flavor]?.name}`);
+    } else {
+      setFlavorMessage(entry.name, { kind: 'error', text: `${FLAVOR_OPTIONS[flavor]?.name} に変更できませんでした（詳細はデバッグコンソール）` });
     }
   };
 
@@ -234,7 +358,10 @@ export function TimingConfig({ store }: Props) {
         flavor: result?.flavor ?? 0,
         hasOverride: result?.hasRuntimeOverride ?? false,
       } : e));
+      setFlavorMessage(entry.name, null);
       debugLog('INF', 'Timing', `Reset ${entry.name} to devicetree default flavor`);
+    } else {
+      setFlavorMessage(entry.name, { kind: 'error', text: 'デフォルトに戻せませんでした（詳細はデバッグコンソール）' });
     }
   };
 
@@ -262,14 +389,17 @@ export function TimingConfig({ store }: Props) {
               （macOSで英字キーが長押しリピートせずアクセント候補が出てしまう問題への対策。修飾キー・メディアキーは対象外）。
               デフォルトOFF。
             </div>
+            {statusNote(keyRepeatStatus) && (
+              <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>{statusNote(keyRepeatStatus)}</div>
+            )}
           </div>
           <button
             onClick={toggleKeyRepeat}
-            disabled={keyRepeatBusy}
+            disabled={keyRepeatBusy || keyRepeatStatus !== 'loaded'}
             style={{
-              width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer', flexShrink: 0,
+              width: 36, height: 20, borderRadius: 10, border: 'none', cursor: keyRepeatStatus === 'loaded' ? 'pointer' : 'not-allowed', flexShrink: 0,
               background: keyRepeatEnabled ? 'var(--accent)' : 'var(--bg-hover)',
-              position: 'relative', transition: 'background 0.2s', opacity: keyRepeatBusy ? 0.5 : 1,
+              position: 'relative', transition: 'background 0.2s', opacity: keyRepeatBusy || keyRepeatStatus !== 'loaded' ? 0.5 : 1,
             }}
           >
             <span style={{
@@ -289,9 +419,15 @@ export function TimingConfig({ store }: Props) {
         </div>
 
         <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Tapping Term</div>
-        <div className="timing-value">
+        <div className="timing-value" style={ttStatus === 'loaded' ? undefined : { opacity: 0.5 }}>
           {store.tappingTerm}<span className="timing-unit">ms</span>
         </div>
+        {ttStatus !== 'loaded' && (
+          <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 6 }}>
+            {statusNote(ttStatus)}
+            {ttStatus !== 'loading' && ' — 表示中の値はプロジェクトの値で、実機の値ではありません。'}
+          </div>
+        )}
 
         <input
           type="range"
@@ -322,8 +458,8 @@ export function TimingConfig({ store }: Props) {
       </div>
 
       <div className="save-actions">
-        <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleSave}>デバイスに保存</button>
-        <button className="btn btn-outline" style={{ flex: 1 }} onClick={() => setLoaded(false)}>再読込</button>
+        <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleSave} disabled={!connected}>デバイスに保存</button>
+        <button className="btn btn-outline" style={{ flex: 1 }} onClick={() => setTtReload(n => n + 1)} disabled={!connected || ttStatus === 'loading'}>再読込</button>
       </div>
       <div className="save-note">
         この設定はデバイスのFlashメモリに保存され、再起動後も維持されます。
@@ -342,6 +478,7 @@ export function TimingConfig({ store }: Props) {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
               <span style={{ fontSize: 12, fontWeight: 600, fontFamily: 'monospace' }}>{entry.name}</span>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                {holdTapStatus === 'loaded' && entry.behaviorId !== null && (
                 <span style={{
                   fontSize: 9, padding: '1px 6px', borderRadius: 8,
                   background: entry.hasOverride ? 'var(--accent)' : 'var(--bg-tertiary)',
@@ -349,6 +486,7 @@ export function TimingConfig({ store }: Props) {
                 }}>
                   {entry.hasOverride ? 'カスタム' : 'デフォルト'}
                 </span>
+                )}
                 <button
                   className="btn btn-outline"
                   style={{ fontSize: 10, padding: '2px 6px' }}
@@ -358,20 +496,22 @@ export function TimingConfig({ store }: Props) {
               </div>
             </div>
             <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
-              {entry.behaviorId === null ? '未検出（デバイスに存在しません）' : `${entry.keyIds.length}個のキーでホールド判定`}
+              {entryNote(holdTapStatus, entry.behaviorId) ?? `${entry.keyIds.length}個のキーでホールド判定（最大${HOLD_TAP_POSITIONS_MAX}個）`}
             </div>
+            {editingHoldTap !== entry.name && holdTapMessages[entry.name] && <RowMessageLine msg={holdTapMessages[entry.name]} />}
             {editingHoldTap === entry.name && entry.behaviorId !== null && (
               <div style={{ marginTop: 8 }}>
                 <MiniKeyboardPicker selected={entry.keyIds} onToggle={id => toggleHoldTapKey(entry.name, id)} />
                 <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
-                  <button className="btn btn-primary" style={{ flex: 1, fontSize: 11 }} onClick={() => saveHoldTapPositions(entry)}>保存</button>
+                  <button className="btn btn-primary" style={{ flex: 1, fontSize: 11 }} onClick={() => saveHoldTapPositions(entry)} disabled={entry.keyIds.length > HOLD_TAP_POSITIONS_MAX}>保存</button>
                   <button className="btn btn-outline" style={{ flex: 1, fontSize: 11 }} onClick={() => resetHoldTapPositions(entry)}>デフォルトに戻す</button>
                 </div>
+                {holdTapMessages[entry.name] && <RowMessageLine msg={holdTapMessages[entry.name]} />}
               </div>
             )}
           </div>
         ))}
-        <button className="btn btn-outline" style={{ width: '100%', fontSize: 11 }} onClick={() => setHoldTapLoaded(false)}>再読込</button>
+        <button className="btn btn-outline" style={{ width: '100%', fontSize: 11 }} onClick={() => setHoldTapReload(n => n + 1)} disabled={!connected || holdTapStatus === 'loading'}>再読込</button>
       </div>
 
       <div className="config-section">
@@ -406,6 +546,7 @@ export function TimingConfig({ store }: Props) {
           <div key={entry.name} style={{ marginBottom: 12, padding: 8, background: 'var(--bg-secondary)', borderRadius: 4 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
               <span style={{ fontSize: 12, fontWeight: 600 }}>{entry.label}</span>
+              {flavorStatus === 'loaded' && entry.behaviorId !== null && (
               <span style={{
                 fontSize: 9, padding: '1px 6px', borderRadius: 8,
                 background: entry.hasOverride ? 'var(--accent)' : 'var(--bg-tertiary)',
@@ -413,9 +554,10 @@ export function TimingConfig({ store }: Props) {
               }}>
                 {entry.hasOverride ? 'カスタム' : 'デフォルト'}
               </span>
+              )}
             </div>
             {entry.behaviorId === null ? (
-              <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>未検出（デバイスに存在しません）</div>
+              <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{entryNote(flavorStatus, entry.behaviorId)}</div>
             ) : (
               <>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 4 }}>
@@ -434,11 +576,12 @@ export function TimingConfig({ store }: Props) {
                   onClick={() => resetFlavor(entry)}
                   disabled={!entry.hasOverride}
                 >デフォルトに戻す</button>
+                {flavorMessages[entry.name] && <RowMessageLine msg={flavorMessages[entry.name]} />}
               </>
             )}
           </div>
         ))}
-        <button className="btn btn-outline" style={{ width: '100%', fontSize: 11 }} onClick={() => setFlavorLoaded(false)}>再読込</button>
+        <button className="btn btn-outline" style={{ width: '100%', fontSize: 11 }} onClick={() => setFlavorReload(n => n + 1)} disabled={!connected || flavorStatus === 'loading'}>再読込</button>
       </div>
     </div>
   );

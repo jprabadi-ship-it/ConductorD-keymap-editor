@@ -8,6 +8,8 @@ import { buildDeviceEntries } from '../../data/devices';
 
 interface Props {
   store: KeymapStore;
+  /** App's connection state (USB or BLE); the device reads re-run when it changes. */
+  connected: boolean;
 }
 
 type SlotSummary = {
@@ -96,7 +98,7 @@ function AmlMiniKeyboard({ selected, onToggle }: { selected: string[]; onToggle:
   );
 }
 
-export function TrackballConfig({ store }: Props) {
+export function TrackballConfig({ store, connected }: Props) {
   const { setAmlExcluded, trackballResetTick } = store;
   const [editingGesture, setEditingGesture] = useState<'up' | 'down' | 'left' | 'right' | null>(null);
   const [gestureSearch, setGestureSearch] = useState('');
@@ -123,6 +125,9 @@ export function TrackballConfig({ store }: Props) {
   const [dragScaleNum, setDragScaleNum] = useState(1);
   const [dragScaleDen, setDragScaleDen] = useState(2);
   const [loaded, setLoaded] = useState(false);
+  // Bumped by 再読込/元に戻す so a reload runs even when an earlier read failed
+  // and left `loaded` already false (clearing it again changed nothing).
+  const [reloadTick, setReloadTick] = useState(0);
   const [slotEntries, setSlotEntries] = useState<ReturnType<typeof buildDeviceEntries>>([]);
   const [selectedEndpoint, setSelectedEndpoint] = useState(0);
   // Kept in sync with selectedEndpoint via effect below so reloadSlotSummaries
@@ -324,13 +329,17 @@ export function TrackballConfig({ store }: Props) {
   // slot comparison table is populated only when the user explicitly clicks
   // "比較を更新".
   useEffect(() => {
-    if (!isConnected() || loaded) return;
+    if (!connected) setLoaded(false);
+  }, [connected]);
+
+  useEffect(() => {
+    if (!connected || !isConnected() || loaded) return;
     (async () => {
       const [osConfig, gestureConfig] = await Promise.all([getOsConfig(), getGestureConfig()]);
       const initialEndpoint = osConfig?.activeEndpoint ?? gestureConfig?.activeEndpoint ?? 0;
       await loadSlotPointingSettings(initialEndpoint, { preserveDeviceSelection: true });
     })();
-  }, [loaded, loadSlotPointingSettings]);
+  }, [connected, loaded, reloadTick, loadSlotPointingSettings]);
 
   // Header "⟳ Reset" bumps trackballResetTick — bring mouse acceleration back to its default (弱)
   const trackballResetTickRef = useRef(trackballResetTick);
@@ -893,13 +902,13 @@ export function TrackballConfig({ store }: Props) {
             await savePointingChanges();
             debugLog('INF', 'Trackball', 'All settings saved to flash');
           }}>💾 保存</button>
-          <button className="btn btn-outline" style={{ flex: 1 }} onClick={() => { setLoaded(false); }}>元に戻す</button>
+          <button className="btn btn-outline" style={{ flex: 1 }} onClick={() => { setLoaded(false); setReloadTick(n => n + 1); }}>元に戻す</button>
           <button className="btn btn-outline" style={{ flex: 1 }} onClick={() => {
             setCpi(800); setScrollSensitivity(1.0); setPrecisionSensitivity(0.25); setSpeedSensitivity(1.0);
             setAccelMode(1); setAccelMaxRatio(1.2); setAccelStartSpeed(10); setAccelRampWidth(28);
           }}>初期値</button>
         </div>
-        <button className="btn btn-outline" style={{ width: '100%', fontSize: 12 }} onClick={() => setLoaded(false)}>再読込</button>
+        <button className="btn btn-outline" style={{ width: '100%', fontSize: 12 }} onClick={() => { setLoaded(false); setReloadTick(n => n + 1); }}>再読込</button>
       </div>
       <div className="save-note">
         スライダーを動かすとリアルタイムで反映されます。「保存」でFlashに永続化してください。

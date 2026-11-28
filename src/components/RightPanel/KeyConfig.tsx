@@ -6,6 +6,8 @@ import { isConnected, isSameKeyPress, listCustomHoldTapBehaviors } from '../../s
 
 interface Props {
   store: KeymapStore;
+  /** App's connection state (USB or BLE); the device reads re-run when it changes. */
+  connected: boolean;
 }
 
 const BINDING_TYPES: { type: BindingType; label: string }[] = [
@@ -33,15 +35,18 @@ const RIGHT_MODS: { mod: Modifier; label: string }[] = [
   { mod: 'rgui', label: 'R⌘' },
 ];
 
-export function KeyConfig({ store }: Props) {
+export function KeyConfig({ store, connected }: Props) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>('Letters');
   const [customHoldTaps, setCustomHoldTaps] = useState<{ id: number; name: string; kind: 'lt' | 'mt' }[] | null>(null);
 
+  // Keyed on the connection so a tab opened before connecting still reads
+  // the device's hold-tap behaviors once it is connected.
   useEffect(() => {
+    if (!connected) { setCustomHoldTaps(null); return; }
     if (!isConnected() || customHoldTaps !== null) return;
     listCustomHoldTapBehaviors().then(setCustomHoldTaps);
-  }, [customHoldTaps]);
+  }, [connected, customHoldTaps]);
 
   const key = store.selectedKey;
   if (!key) {

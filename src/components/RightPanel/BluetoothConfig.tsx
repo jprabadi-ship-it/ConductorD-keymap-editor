@@ -14,6 +14,8 @@ import { debugLog } from '../DebugConsole';
 
 interface Props {
   store: KeymapStore;
+  /** App's connection state (USB or BLE); the device reads re-run when it changes. */
+  connected: boolean;
 }
 
 const MOD_BUTTONS: { key: Modifier; label: string }[] = [
@@ -25,7 +27,7 @@ function bindingAt(store: KeymapStore, layerId: number, keyId: string): KeyBindi
   return store.layers.find(l => l.index === layerId)?.keys.find(k => k.id === keyId)?.binding;
 }
 
-export function BluetoothConfig({ store }: Props) {
+export function BluetoothConfig({ store, connected }: Props) {
   const [loaded, setLoaded] = useState(false);
   // 'usb:N' or 'bt:N'
   const [editingKey, setEditingKey] = useState<string | null>(null);
@@ -48,9 +50,17 @@ export function BluetoothConfig({ store }: Props) {
   const [gestureCategory, setGestureCategory] = useState<string | null>(null);
   const [gestureMods, setGestureMods] = useState<Modifier[]>([]);
 
+  // The loaders below run once per connection: dropping the flags when the
+  // device goes away makes them read again when it comes back, including when
+  // the tab was opened before connecting.
+  useEffect(() => {
+    if (connected) return;
+    setLoaded(false); setGestureLoaded(false); setOsLoaded(false); setUsbSlotsLoaded(false);
+  }, [connected]);
+
   // Load real profile names/connection state from the device on mount.
   useEffect(() => {
-    if (!isConnected() || loaded) return;
+    if (!connected || !isConnected() || loaded) return;
     (async () => {
       const result = await getBleProfiles();
       if (result) {
@@ -65,11 +75,11 @@ export function BluetoothConfig({ store }: Props) {
       setLoaded(true);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loaded]);
+  }, [connected, loaded]);
 
   // Load the per-device gesture binding overrides on mount.
   useEffect(() => {
-    if (!isConnected() || gestureLoaded) return;
+    if (!connected || !isConnected() || gestureLoaded) return;
     (async () => {
       await ensureBehaviorsLoaded(); // so gestureBindingLabel() can resolve names
       const result = await getGestureConfig();
@@ -81,11 +91,11 @@ export function BluetoothConfig({ store }: Props) {
       setGestureLoaded(true);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gestureLoaded]);
+  }, [connected, gestureLoaded]);
 
   // Load the per-device keymap overlay assignments on mount.
   useEffect(() => {
-    if (!isConnected() || osLoaded) return;
+    if (!connected || !isConnected() || osLoaded) return;
     (async () => {
       const result = await getOsConfig();
       if (result) {
@@ -95,11 +105,11 @@ export function BluetoothConfig({ store }: Props) {
       setOsLoaded(true);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [osLoaded]);
+  }, [connected, osLoaded]);
 
   // Load the USB virtual slot names on mount.
   useEffect(() => {
-    if (!isConnected() || usbSlotsLoaded) return;
+    if (!connected || !isConnected() || usbSlotsLoaded) return;
     (async () => {
       const result = await getUsbSlots();
       if (result) {
@@ -110,7 +120,7 @@ export function BluetoothConfig({ store }: Props) {
       setUsbSlotsLoaded(true);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [usbSlotsLoaded]);
+  }, [connected, usbSlotsLoaded]);
 
   const startEdit = (key: string, currentName: string) => {
     setEditingKey(key);

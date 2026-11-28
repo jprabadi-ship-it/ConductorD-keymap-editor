@@ -344,12 +344,12 @@ function App() {
   const panelContent = () => {
     switch (store.activeTab) {
       case 'layers': return <LayerList store={store} />;
-      case 'combos': return <ComboList store={store} />;
+      case 'combos': return <ComboList store={store} connected={usbConnected} />;
       case 'macros': return store.selectedMacroIndex !== null ? <MacroEditor store={store} /> : <MacroList store={store} />;
-      case 'key-config': return <KeyConfig store={store} />;
-      case 'trackball': return <TrackballConfig store={store} />;
-      case 'timing': return <TimingConfig store={store} />;
-      case 'bluetooth': return <BluetoothConfig store={store} />;
+      case 'key-config': return <KeyConfig store={store} connected={usbConnected} />;
+      case 'trackball': return <TrackballConfig store={store} connected={usbConnected} />;
+      case 'timing': return <TimingConfig store={store} connected={usbConnected} />;
+      case 'bluetooth': return <BluetoothConfig store={store} connected={usbConnected} />;
       case 'diagnostics': return <DiagnosticsPanel store={store} onOpenFirmwareWizard={setFirmwareWizardInfo} />;
     }
   };

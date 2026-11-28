@@ -8,6 +8,8 @@ import { debugLog } from '../DebugConsole';
 
 interface Props {
   store: KeymapStore;
+  /** App's connection state (USB or BLE); the device reads re-run when it changes. */
+  connected: boolean;
 }
 
 function MiniKeyboard({ selected, onToggle }: { selected: string[]; onToggle: (id: string) => void }) {
@@ -99,7 +101,7 @@ const DEVICE_FUNCTIONS = [
   { id: 'sleep', label: 'スリープ (電源オフ)', keyCode: null as string | null, displayLabel: null as string | null, available: false },
 ] as const;
 
-export function ComboList({ store }: Props) {
+export function ComboList({ store, connected }: Props) {
   const { setAmlExcluded } = store;
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -120,7 +122,7 @@ export function ComboList({ store }: Props) {
   }, []);
 
   useEffect(() => {
-    if (!isConnected()) return;
+    if (!connected || !isConnected()) return;
     let cancelled = false;
     (async () => {
       const aml = await getAutoLayer();
@@ -132,7 +134,7 @@ export function ComboList({ store }: Props) {
       setAmlExcluded(positionsToKeyIds(aml.excludedPositions));
     })();
     return () => { cancelled = true; };
-  }, [setAmlExcluded]);
+  }, [connected, setAmlExcluded]);
 
   // Best-effort: land on the OUTPUT KEY category (or the デバイス機能 list)
   // that already matches this combo's current binding, so re-opening one

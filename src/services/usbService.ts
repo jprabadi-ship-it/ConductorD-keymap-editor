@@ -1622,7 +1622,15 @@ export async function getHoldTapPositions(behaviorId: number): Promise<{ positio
 
 export async function setHoldTapPositions(behaviorId: number, positions: number[], clearOverride: boolean = false): Promise<boolean> {
   try {
-    await sendRequest({ behaviors: { setHoldTapPositions: { behaviorId, positions, clearOverride } } });
+    const resp = await sendRequest({ behaviors: { setHoldTapPositions: { behaviorId, positions, clearOverride } } });
+    // The firmware answers a rejected write (1=INVALID, 2=STORAGE) with the
+    // `err` arm of the result oneof rather than an RPC error, so a reply alone
+    // is not success.
+    const err = resp.behaviors?.setHoldTapPositions?.err;
+    if (err) {
+      debugLog('ERR', 'USB', `setHoldTapPositions rejected by device: ${err === 1 ? 'INVALID' : err === 2 ? 'STORAGE' : `code ${err}`}`);
+      return false;
+    }
     debugLog('INF', 'USB', `hold-tap positions set for behavior ${behaviorId}: clear=${clearOverride}, positions=[${positions.join(',')}]`);
     return true;
   } catch (e: any) {
@@ -1651,7 +1659,12 @@ export async function getHoldTapFlavor(behaviorId: number): Promise<{ flavor: nu
 
 export async function setHoldTapFlavor(behaviorId: number, flavor: number, clearOverride: boolean = false): Promise<boolean> {
   try {
-    await sendRequest({ behaviors: { setHoldTapFlavor: { behaviorId, flavor, clearOverride } } });
+    const resp = await sendRequest({ behaviors: { setHoldTapFlavor: { behaviorId, flavor, clearOverride } } });
+    const err = resp.behaviors?.setHoldTapFlavor?.err;
+    if (err) {
+      debugLog('ERR', 'USB', `setHoldTapFlavor rejected by device: ${err === 1 ? 'INVALID' : err === 2 ? 'STORAGE' : `code ${err}`}`);
+      return false;
+    }
     debugLog('INF', 'USB', `hold-tap flavor set for behavior ${behaviorId}: clear=${clearOverride}, flavor=${flavor}`);
     return true;
   } catch (e: any) {
